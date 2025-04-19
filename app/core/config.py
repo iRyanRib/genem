@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import AnyHttpUrl, PostgresDsn, validator, field_validator
+from pydantic import AnyHttpUrl, validator, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,30 +19,6 @@ class Settings(BaseSettings):
         elif isinstance(v, (list, str)):
             return v
         raise ValueError(v)
-
-    # Database
-    POSTGRES_SERVER: str = "localhost"
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = "postgres"
-    POSTGRES_DB: str = "genem"
-    POSTGRES_PORT: int = 5432
-    SQLALCHEMY_DATABASE_URI: Optional[PostgresDsn] = None
-
-    @field_validator("SQLALCHEMY_DATABASE_URI", mode="before")
-    @classmethod
-    def assemble_db_connection(cls, v: Optional[str], info) -> Any:
-        if isinstance(v, str):
-            return v
-        
-        values = info.data
-        return PostgresDsn.build(
-            scheme="postgresql",
-            username=values.get("POSTGRES_USER"),
-            password=values.get("POSTGRES_PASSWORD"),
-            host=values.get("POSTGRES_SERVER"),
-            port=values.get("POSTGRES_PORT"),
-            path=f"/{values.get('POSTGRES_DB') or ''}",
-        )
     
     # Configurações de ambiente
     DEBUG: bool = False

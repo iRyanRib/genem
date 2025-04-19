@@ -1,4 +1,4 @@
-.PHONY: install dev docker-up docker-down test lint migrate setup run-local run-docker clean help
+.PHONY: install dev docker-up docker-down test lint setup run-local run-docker clean help
 
 # Instalar dependências
 install:
@@ -15,7 +15,7 @@ dev:
 	poetry run python main.py
 
 # Executar localmente sem Docker
-run-local: setup migrate
+run-local: setup
 	poetry run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 # Iniciar contêineres Docker
@@ -24,7 +24,7 @@ docker-up:
 
 # Executar via Docker
 run-docker:
-	docker-compose down -v || true
+	docker-compose down || true
 	docker-compose build
 	docker-compose up
 
@@ -41,10 +41,6 @@ lint:
 	poetry run black .
 	poetry run isort .
 	poetry run flake8 .
-
-# Aplicar migrações
-migrate:
-	./scripts/init-db.sh
 
 # Limpar arquivos temporários
 clean:
@@ -68,11 +64,10 @@ help:
 	@echo "  make install     - Instalar dependências"
 	@echo "  make setup       - Configurar ambiente inicial"
 	@echo "  make dev         - Iniciar servidor de desenvolvimento"
-	@echo "  make run-local   - Executar localmente (instala deps, aplica migrações e executa)"
+	@echo "  make run-local   - Executar localmente (instala deps e executa)"
 	@echo "  make docker-up   - Iniciar contêineres Docker e deixar rodando em background"
 	@echo "  make run-docker  - Reconstruir e executar Docker em primeiro plano (útil para debug)"
 	@echo "  make docker-down - Parar contêineres Docker"
 	@echo "  make test        - Executar testes"
 	@echo "  make lint        - Executar linters"
-	@echo "  make migrate     - Aplicar migrações"
 	@echo "  make clean       - Limpar arquivos temporários" 

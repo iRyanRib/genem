@@ -1,8 +1,6 @@
-from typing import List, Optional
+from typing import Optional
 
 from pydantic import BaseModel, EmailStr
-
-from app.schemas.item import Item
 
 
 # Propriedades compartilhadas
@@ -23,25 +21,7 @@ class UserUpdate(UserBase):
     password: Optional[str] = None
 
 
-# Propriedades adicionais para retornar via API
-class UserInDBBase(UserBase):
-    id: int
-    email: EmailStr
-
-    class Config:
-        from_attributes = True
-
-
 # Propriedades para retornar via API
-class User(UserInDBBase):
-    pass
-
-
-# Propriedades para retornar via API com itens
-class UserWithItems(UserInDBBase):
-    items: List[Item] = []
-
-
-# Propriedades armazenadas no DB
-class UserInDB(UserInDBBase):
-    hashed_password: str 
+class User(UserBase):
+    id: int
+    email: EmailStr 

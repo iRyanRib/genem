@@ -17,9 +17,6 @@ fi
 echo "Iniciando o ambiente Docker..."
 docker-compose up -d
 
-echo "Aguardando a inicialização dos serviços..."
-sleep 10
-
 echo "Verificando se os serviços estão rodando..."
 docker-compose ps
 

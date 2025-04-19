@@ -1,62 +1,112 @@
-from typing import Any, Dict, Optional, Union
+from typing import List, Optional, Dict
+import secrets
+import hashlib
 
-from sqlalchemy.orm import Session
+from app.schemas.user import User, UserCreate, UserUpdate
 
-from app.models.user import User
-from app.schemas.user import UserCreate, UserUpdate
-from app.utils.security import get_password_hash, verify_password
+
+# Mock database
+USERS_DB: Dict[int, User] = {}
+next_user_id = 1
+
+# Mock password table (não seria usado em produção, apenas para demonstração)
+USER_PASSWORDS: Dict[int, str] = {}
 
 
 class UserService:
-    def get(self, db: Session, user_id: int) -> Optional[User]:
-        return db.query(User).filter(User.id == user_id).first()
+    def get(self, id: int) -> Optional[User]:
+        """Obter um usuário pelo ID"""
+        if id in USERS_DB:
+            return USERS_DB[id]
+        return None
 
-    def get_by_email(self, db: Session, email: str) -> Optional[User]:
-        return db.query(User).filter(User.email == email).first()
+    def get_by_email(self, email: str) -> Optional[User]:
+        """Obter um usuário pelo email"""
+        for user in USERS_DB.values():
+            if user.email == email:
+                return user
+        return None
 
-    def create(self, db: Session, obj_in: UserCreate) -> User:
-        db_obj = User(
+    def get_multi(self, *, skip: int = 0, limit: int = 100) -> List[User]:
+        """Obter múltiplos usuários"""
+        users = list(USERS_DB.values())
+        return users[skip : skip + limit]
+
+    def create(self, *, obj_in: UserCreate) -> User:
+        """Criar um novo usuário"""
+        global next_user_id
+        
+        # Hash da senha (mockado para simplicidade)
+        hashed_password = self._get_password_hash(obj_in.password)
+        
+        user = User(
+            id=next_user_id,
             email=obj_in.email,
-            hashed_password=get_password_hash(obj_in.password),
-            is_superuser=obj_in.is_superuser,
             is_active=obj_in.is_active,
+            is_superuser=obj_in.is_superuser
         )
-        db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
-        return db_obj
-
-    def update(
-        self, db: Session, *, db_obj: User, obj_in: Union[UserUpdate, Dict[str, Any]]
-    ) -> User:
-        if isinstance(obj_in, dict):
-            update_data = obj_in
-        else:
-            update_data = obj_in.model_dump(exclude_unset=True)
-        if update_data.get("password"):
-            hashed_password = get_password_hash(update_data["password"])
-            del update_data["password"]
-            update_data["hashed_password"] = hashed_password
-        for field in update_data:
-            setattr(db_obj, field, update_data[field])
-        db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
-        return db_obj
-
-    def authenticate(self, db: Session, *, email: str, password: str) -> Optional[User]:
-        user = self.get_by_email(db, email=email)
-        if not user:
-            return None
-        if not verify_password(password, user.hashed_password):
-            return None
+        
+        USERS_DB[next_user_id] = user
+        USER_PASSWORDS[next_user_id] = hashed_password
+        
+        next_user_id += 1
         return user
 
-    def is_active(self, user: User) -> bool:
-        return user.is_active
+    def update(self, *, user_id: int, obj_in: UserUpdate) -> Optional[User]:
+        """Atualizar um usuário existente"""
+        if user_id not in USERS_DB:
+            return None
+            
+        user = USERS_DB[user_id]
+        update_data = obj_in.model_dump(exclude_unset=True)
+        
+        # Trata a senha separadamente
+        if "password" in update_data:
+            password = update_data.pop("password")
+            if password:
+                USER_PASSWORDS[user_id] = self._get_password_hash(password)
+        
+        # Atualiza os demais campos
+        for field in update_data:
+            setattr(user, field, update_data[field])
+            
+        USERS_DB[user_id] = user
+        return user
 
-    def is_superuser(self, user: User) -> bool:
-        return user.is_superuser
+    def authenticate(self, *, email: str, password: str) -> Optional[User]:
+        """Autenticar um usuário"""
+        user = self.get_by_email(email=email)
+        if not user:
+            return None
+        
+        if not user.is_active:
+            return None
+            
+        if not self._verify_password(password, USER_PASSWORDS.get(user.id, "")):
+            return None
+            
+        return user
+
+    def _verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        """Verificar senha (mock simplificado)"""
+        return self._get_password_hash(plain_password) == hashed_password
+        
+    def _get_password_hash(self, password: str) -> str:
+        """Criar hash de senha (mockado para simplicidade)"""
+        # Em uma implementação real, use bcrypt ou outro algoritmo seguro
+        # Isso é apenas um mock simples para demonstração
+        salt = "mock-salt"
+        return hashlib.sha256(f"{password}{salt}".encode()).hexdigest()
 
 
-user_service = UserService() 
+# Singleton instance
+user_service = UserService()
+
+# Cria um usuário admin inicial para facilitar testes
+if not USERS_DB:
+    admin = UserCreate(
+        email="admin@example.com",
+        password="admin",
+        is_superuser=True
+    )
+    user_service.create(obj_in=admin) 
