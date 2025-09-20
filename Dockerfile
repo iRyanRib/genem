@@ -1,10 +1,14 @@
-FROM python:3.9-slim
+FROM python:3.12.7-slim
 
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    DOCKER=true \
+    ENVIRONMENT=production \
+    LOG_LEVEL=INFO \
+    LOG_TO_FILE=false
 
 # Instalar dependências do sistema
 RUN apt-get update \
@@ -32,9 +36,6 @@ COPY . /app/
 
 # Expor a porta que o app usa
 EXPOSE 8000
-
-# Configurar comando de entrada
-ENTRYPOINT ["./docker-entrypoint.sh"]
 
 # Comando para iniciar a aplicação
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"] 

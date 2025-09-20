@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional, Union
+import os
 
 from pydantic import AnyHttpUrl, validator, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,6 +24,20 @@ class Settings(BaseSettings):
     # Configurações de ambiente
     DEBUG: bool = False
     ENVIRONMENT: str = "development"  # development, staging, production
+    
+    # Configurações de logging
+    LOG_LEVEL: str = "INFO"
+    LOG_TO_FILE: bool = False
+    LOG_FILE_PATH: Optional[str] = None
+    
+    # MongoDB
+    MONGODB_CONNECTION_STRING = os.getenv("MONGODB_CONNECTION_STRING")
+    DATABASE_NAME = os.getenv("DATABASE_NAME")
+    
+    # Google ADK
+    GOOGLE_API_KEY: Optional[str] = None
+    GOOGLE_MODEL_NAME = os.getenv("GOOGLE_MODEL_NAME")
+    APP_NAME: str = "genem_enem_agent"
     
     model_config = SettingsConfigDict(
         env_file=".env", 

@@ -1,125 +1,108 @@
-# GENEM API
+# ENEM Question Processor
 
-API REST desenvolvida com FastAPI e Pydantic.
+Este projeto utiliza o Google ADK (Agent Development Kit) para processar questões do ENEM, buscando informações no Google e YouTube, e retornando um JSON formatado com respostas e links relevantes.
 
-## Tecnologias Utilizadas
+## Recursos
 
-- **FastAPI**: Framework web de alta performance
-- **Pydantic**: Validação de dados baseada em tipos Python
-- **Poetry**: Gerenciamento de dependências e pacotes
-- **Docker/Docker Compose**: Contêinerização e orquestração
+- Processamento de questões do ENEM em formato estruturado
+- Busca de informações no Google (até 3 resultados)
+- Extração eficiente de conteúdo web com fetch MCP
+- Busca de vídeos no YouTube relacionados à questão
+- API REST com FastAPI para integração com outros sistemas
+
+## Requisitos
+
+- Python 3.9+
+- Google API Key
+- SERP API Key (para busca no Google e YouTube)
+- MCP fetch configurado para extração de conteúdo web
+
+## Instalação
+
+1. Clone o repositório:
+```
+git clone https://github.com/seu-usuario/genem.git
+cd genem
+```
+
+2. Instale as dependências:
+```
+pip install -r requirements.txt
+```
+
+3. Configure as variáveis de ambiente:
+```
+export GOOGLE_API_KEY="sua-chave-da-api-do-google"
+export SERP_API_KEY="sua-chave-da-api-serpapi"
+```
+
+4. Configure o MCP fetch server:
+```
+npx mcp-fetch
+```
+
+## Uso
+
+### Via API REST
+
+1. Inicie o servidor:
+```
+python app.py
+```
+
+2. Acesse a documentação da API em `http://localhost:8000/docs`
+
+3. Envie uma requisição POST para `/process-question` com o seguinte formato:
+```json
+{
+  "title": "Questão 35 ENEM 2022",
+  "discipline": "Matemática",
+  "context": "Um modelo matemático para determinar a energia consumida...",
+  "ano": "2022",
+  "alternativas": "a) 10^-4 \nb) 2 × 10^-4 \nc) 4 × 10^-4 \nd) 2 × 10^-3 \ne) 4 × 10^-3",
+  "alternativaCorreta": "b) 2 × 10^-4"
+}
+```
+
+### Via Script Python
+
+Execute o script de teste para processar uma questão de exemplo:
+```
+python -m adk_test.search.test_enem_agent
+```
+
+## Formato de Resposta
+
+O sistema retorna um JSON com o seguinte formato:
+
+```json
+{
+  "referenceQuestion": "Questão 35 ENEM 2022",
+  "answers": [
+    {
+      "response": "Texto explicativo baseado no conteúdo da página",
+      "link": "URL da página"
+    }
+  ],
+  "videoLinks": [
+    {
+      "title": "Título do vídeo",
+      "link": "URL do vídeo"
+    }
+  ]
+}
+```
 
 ## Estrutura do Projeto
 
-```
-genem/
-│
-├── app/                    # Pacote principal da aplicação
-│   ├── api/                # Endpoints da API
-│   │   ├── dependencies/   # Dependências da API (segurança, etc.)
-│   │   └── endpoints/      # Rotas da API
-│   ├── core/               # Configurações centrais da aplicação
-│   ├── schemas/            # Schemas Pydantic para validação
-│   ├── services/           # Camada de serviço para lógica de negócios
-│   └── utils/              # Utilitários gerais
-│
-├── scripts/                # Scripts utilitários
-├── .env                    # Variáveis de ambiente (não versionado)
-├── .env.example            # Exemplo de variáveis de ambiente
-├── docker-compose.yml      # Configuração do Docker Compose
-├── Dockerfile              # Configuração do Docker
-├── docker-entrypoint.sh    # Script de entrada para Docker
-├── main.py                 # Ponto de entrada da aplicação
-├── Makefile                # Comandos úteis para desenvolvimento
-├── pyproject.toml          # Configuração do Poetry
-└── README.md               # Este arquivo
-```
+- `/adk_test/search/` - Módulos principais
+  - `google_mcp_tool.py` - Ferramenta para busca no Google
+  - `youtube_mcp_tool.py` - Ferramenta para busca no YouTube
+  - `fetch_tool.py` - Ferramenta para extração eficiente de conteúdo web com fetch MCP
+  - `enem_agent.py` - Agente principal para processamento de questões
+  - `test_enem_agent.py` - Script de teste
+- `app.py` - Servidor FastAPI
 
-## Configuração do Ambiente de Desenvolvimento
+## Licença
 
-### Usando Make e Poetry
-
-Este projeto usa um Makefile para simplificar os comandos comuns. Para ver todos os comandos disponíveis:
-
-```bash
-make help
-```
-
-#### Configuração Rápida (recomendada)
-
-```bash
-# Configurar o ambiente, instalar dependências e executar localmente
-make run-local
-```
-
-#### Configuração passo a passo
-
-1. Instale o Poetry: https://python-poetry.org/docs/#installation
-2. Clone o repositório
-3. Configure o ambiente:
-   ```bash
-   make setup
-   ```
-4. Execute o servidor de desenvolvimento:
-   ```bash
-   make dev
-   ```
-
-### Usando Docker
-
-#### Execução rápida (para desenvolvimento)
-
-```bash
-make run-docker
-```
-
-#### Execução em background
-
-```bash
-make docker-up
-```
-
-Para parar os contêineres:
-```bash
-make docker-down
-```
-
-## Testes e Linting
-
-Para executar os testes:
-
-```bash
-make test
-```
-
-Para executar os linters (black, isort, flake8):
-
-```bash
-make lint
-```
-
-## Documentação da API
-
-Após iniciar o servidor, acesse:
-
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
-## Autenticação
-
-Para facilitar os testes, um usuário administrador é criado automaticamente:
-
-- Email: admin@example.com
-- Senha: admin
-
-## Resolução de Problemas
-
-### Falta de dependências Python
-
-Se houver problemas com dependências:
-
-```bash
-make install
-```
-
-Isso garantirá que o arquivo `poetry.lock` esteja atualizado e todas as dependências sejam instaladas corretamente.
+MIT
