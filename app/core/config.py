@@ -31,12 +31,28 @@ class Settings(BaseSettings):
     LOG_FILE_PATH: Optional[str] = None
     
     # MongoDB
-    MONGODB_CONNECTION_STRING = os.getenv("MONGODB_CONNECTION_STRING")
-    DATABASE_NAME = os.getenv("DATABASE_NAME")
+    MONGODB_CONNECTION_STRING: Optional[str] = None
+    DATABASE_NAME: Optional[str] = None
+    DATABASE_USER: Optional[str] = None
+    DATABASE_PASSWORD: Optional[str] = None
+    DATABASE_HOST: Optional[str] = None
+    
+    # Server
+    SERVER_PORT: int = 8000
+    
+    # JWT
+    JWT_PRIVATE_KEY: Optional[str] = None
+    
+    # Admin
+    LOGIN: Optional[str] = None
+    PASSWORD: Optional[str] = None
+    
+    # GROQ API
+    GROQ_API_KEY: Optional[str] = None
     
     # Google ADK
     GOOGLE_API_KEY: Optional[str] = None
-    GOOGLE_MODEL_NAME = os.getenv("GOOGLE_MODEL_NAME")
+    GOOGLE_MODEL_NAME: Optional[str] = None
     APP_NAME: str = "genem_enem_agent"
     
     model_config = SettingsConfigDict(
