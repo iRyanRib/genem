@@ -30,12 +30,33 @@ class ExamService(MongoService):
         logger.info(f"🎯 Criando exame para usuário {exam_data.user_id}")
         
         try:
-            # Selecionar questões baseado nos filtros
-            selected_questions = self._select_questions(
-                topics=exam_data.topics,
-                years=exam_data.years,
-                question_count=exam_data.question_count
-            )
+            # Se exam_replic_id for fornecido, replicar exatamente as questões desse exame
+            selected_questions = []
+            if getattr(exam_data, 'exam_replic_id', None):
+                replic_id = exam_data.exam_replic_id
+                logger.info(f"🔁 Replicando questões do exame {replic_id} para novo exame")
+                try:
+                    existing_exam = self.get_by_id(replic_id)
+                    if not existing_exam:
+                        raise ValueError(f"Exame para replicação não encontrado: {replic_id}")
+
+                    # Extrair question ids do exame existente e buscar cada questão
+                    question_ids = [q.get('question_id') for q in existing_exam.get('questions', [])]
+                    for qid in question_ids:
+                        # Usar serviço de questões para obter objeto Question
+                        question_obj = self.question_service.get_question_by_id(str(qid))
+                        if question_obj:
+                            selected_questions.append(question_obj)
+                except Exception as e:
+                    logger.error(f"Erro ao replicar exame {replic_id}: {e}")
+                    raise e
+            else:
+                # Selecionar questões baseado nos filtros
+                selected_questions = self._select_questions(
+                    topics=exam_data.topics,
+                    years=exam_data.years,
+                    question_count=exam_data.question_count
+                )
             
             # Criar questões do exame
             exam_questions = []

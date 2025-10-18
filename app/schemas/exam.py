@@ -47,6 +47,7 @@ class ExamCreate(BaseModel):
     """Dados para criação do exame"""
     user_id: str  # ObjectId do usuário no MongoDB como string
     topics: Optional[List[str]] = None
+    exam_replic_id: Optional[str] = Field(default=None, alias='examReplicId')
     years: Optional[List[int]] = None
     question_count: int = Field(default=25, ge=1, le=100)
     
@@ -60,6 +61,7 @@ class ExamCreate(BaseModel):
     
     class Config:
         arbitrary_types_allowed = True
+        allow_population_by_field_name = True
 
 
 class ExamUpdate(BaseModel):
