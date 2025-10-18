@@ -61,12 +61,19 @@ class MongoService:
             del doc["_id"]
         
         # Converter ObjectIds em todos os campos recursivamente
-        for key, value in doc.items():
+        for key, value in list(doc.items()):
             if isinstance(value, ObjectId):
                 doc[key] = str(value)
             elif isinstance(value, list):
-                # Converter ObjectIds em listas
-                doc[key] = [str(item) if isinstance(item, ObjectId) else item for item in value]
+                new_list = []
+                for item in value:
+                    if isinstance(item, ObjectId):
+                        new_list.append(str(item))
+                    elif isinstance(item, dict):
+                        new_list.append(self._object_id_to_str(item))
+                    else:
+                        new_list.append(item)
+                doc[key] = new_list
             elif isinstance(value, dict):
                 # Recursivamente processar dicionários aninhados
                 doc[key] = self._object_id_to_str(value)
