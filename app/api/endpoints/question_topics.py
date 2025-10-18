@@ -23,7 +23,8 @@ async def get_question_topics(
     field: str = Query(None, description="Filtro por campo"),
     area: str = Query(None, description="Filtro por área"),
     field_code: str = Query(None, description="Filtro por código do campo"),
-    area_code: str = Query(None, description="Filtro por código da área")
+    area_code: str = Query(None, description="Filtro por código da área"),
+    general_topic_code: str = Query(None, description="Filtro por código do tópico geral")
 ) -> QuestionTopicListResponse:
     """
     Obter lista de tópicos com paginação e filtros.
@@ -36,6 +37,7 @@ async def get_question_topics(
     - **area**: Filtrar por área específica
     - **field_code**: Filtrar por código do campo
     - **area_code**: Filtrar por código da área
+    - **general_topic_code**: Filtrar por código do tópico geral
     """
     try:
         query = QuestionTopicQuery(
@@ -45,7 +47,8 @@ async def get_question_topics(
             field=field,
             area=area,
             field_code=field_code,
-            area_code=area_code
+            area_code=area_code,
+            general_topic_code=general_topic_code
         )
         
         result = question_topic_service.get_question_topics(query)
@@ -334,6 +337,112 @@ async def get_distinct_area_codes(
         
     except Exception as e:
         logger.error(f"Erro ao obter códigos de área distintos: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro interno do servidor: {str(e)}"
+        )
+
+
+@router.get("/distinct/general-topics")
+async def get_distinct_general_topics(
+    field_code: str = Query(None, description="Filtrar por código do campo"),
+    area_code: str = Query(None, description="Filtrar por código da área")
+) -> Dict[str, Any]:
+    """
+    Obter tópicos gerais distintos, opcionalmente filtrados por campo e/ou área.
+    """
+    try:
+        general_topics = question_topic_service.get_distinct_general_topics(field_code, area_code)
+        
+        return {
+            "success": True,
+            "data": general_topics,
+            "total": len(general_topics)
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao obter tópicos gerais distintos: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro interno do servidor: {str(e)}"
+        )
+
+
+@router.get("/distinct/general-topic-codes")
+async def get_distinct_general_topic_codes(
+    field_code: str = Query(None, description="Filtrar por código do campo"),
+    area_code: str = Query(None, description="Filtrar por código da área")
+) -> Dict[str, Any]:
+    """
+    Obter códigos de tópicos gerais distintos, opcionalmente filtrados por campo e/ou área.
+    """
+    try:
+        general_topic_codes = question_topic_service.get_distinct_general_topic_codes(field_code, area_code)
+        
+        return {
+            "success": True,
+            "data": general_topic_codes,
+            "total": len(general_topic_codes)
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao obter códigos de tópicos gerais distintos: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro interno do servidor: {str(e)}"
+        )
+
+
+@router.get("/distinct/specific-topics")
+async def get_distinct_specific_topics(
+    field_code: str = Query(None, description="Filtrar por código do campo"),
+    area_code: str = Query(None, description="Filtrar por código da área"),
+    general_topic_code: str = Query(None, description="Filtrar por código do tópico geral")
+) -> Dict[str, Any]:
+    """
+    Obter tópicos específicos distintos, opcionalmente filtrados por campo, área e/ou tópico geral.
+    """
+    try:
+        specific_topics = question_topic_service.get_distinct_specific_topics(
+            field_code, area_code, general_topic_code
+        )
+        
+        return {
+            "success": True,
+            "data": specific_topics,
+            "total": len(specific_topics)
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao obter tópicos específicos distintos: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro interno do servidor: {str(e)}"
+        )
+
+
+@router.get("/hierarchy")
+async def get_topics_hierarchy(
+    field_code: str = Query(None, description="Filtrar por código do campo"),
+    area_code: str = Query(None, description="Filtrar por código da área"),
+    general_topic_code: str = Query(None, description="Filtrar por código do tópico geral")
+) -> Dict[str, Any]:
+    """
+    Obter hierarquia estruturada de campos, áreas, tópicos gerais e específicos.
+    Retorna um objeto com códigos e nomes para facilitar a construção da UI.
+    """
+    try:
+        hierarchy = question_topic_service.get_topics_hierarchy(
+            field_code, area_code, general_topic_code
+        )
+        
+        return {
+            "success": True,
+            "data": hierarchy
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao obter hierarquia de tópicos: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro interno do servidor: {str(e)}"

@@ -46,6 +46,7 @@ class QuestionTopicQuery(BaseModel):
     area: Optional[str] = Field(None, description="Filtro por área")
     field_code: Optional[str] = Field(None, description="Filtro por código do campo")
     area_code: Optional[str] = Field(None, description="Filtro por código da área")
+    general_topic_code: Optional[str] = Field(None, description="Filtro por código do tópico geral")
 
 
 class ClassifyUnusedTopicsRequest(BaseModel):

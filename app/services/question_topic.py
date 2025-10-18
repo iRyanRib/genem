@@ -29,6 +29,8 @@ class QuestionTopicService(MongoService):
                 filters["field_code"] = query.field_code
             if query.area_code:
                 filters["area_code"] = query.area_code
+            if query.general_topic_code:
+                filters["general_topic_code"] = query.general_topic_code
             
             # Buscar tópicos
             if query.search:
@@ -215,6 +217,110 @@ class QuestionTopicService(MongoService):
             filters["field_code"] = field_code
         
         return self.distinct("area_code", **filters)
+    
+    def get_distinct_general_topics(self, field_code: Optional[str] = None, area_code: Optional[str] = None) -> List[str]:
+        """Obter tópicos gerais distintos, opcionalmente filtrados por campo e/ou área"""
+        filters = {}
+        if field_code:
+            filters["field_code"] = field_code
+        if area_code:
+            filters["area_code"] = area_code
+        
+        return self.distinct("general_topic", **filters)
+    
+    def get_distinct_general_topic_codes(self, field_code: Optional[str] = None, area_code: Optional[str] = None) -> List[str]:
+        """Obter códigos de tópicos gerais distintos, opcionalmente filtrados por campo e/ou área"""
+        filters = {}
+        if field_code:
+            filters["field_code"] = field_code
+        if area_code:
+            filters["area_code"] = area_code
+        
+        return self.distinct("general_topic_code", **filters)
+    
+    def get_distinct_specific_topics(
+        self, 
+        field_code: Optional[str] = None, 
+        area_code: Optional[str] = None,
+        general_topic_code: Optional[str] = None
+    ) -> List[str]:
+        """Obter tópicos específicos distintos, opcionalmente filtrados por campo, área e/ou tópico geral"""
+        filters = {}
+        if field_code:
+            filters["field_code"] = field_code
+        if area_code:
+            filters["area_code"] = area_code
+        if general_topic_code:
+            filters["general_topic_code"] = general_topic_code
+        
+        return self.distinct("specific_topic", **filters)
+    
+    def get_topics_hierarchy(
+        self,
+        field_code: Optional[str] = None,
+        area_code: Optional[str] = None,
+        general_topic_code: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Obter hierarquia estruturada de tópicos.
+        Retorna campos com seus códigos, áreas com seus códigos, etc.
+        """
+        filters = {}
+        if field_code:
+            filters["field_code"] = field_code
+        if area_code:
+            filters["area_code"] = area_code
+        if general_topic_code:
+            filters["general_topic_code"] = general_topic_code
+        
+        # Buscar todos os tópicos com os filtros aplicados
+        topics_data = self.get_multi(
+            limit=-1,  # Todos os tópicos
+            **filters
+        )
+        
+        # Construir hierarquia
+        hierarchy = {}
+        
+        for topic_data in topics_data:
+            field = topic_data.get("field")
+            field_code_val = topic_data.get("field_code")
+            area = topic_data.get("area")
+            area_code_val = topic_data.get("area_code")
+            general_topic = topic_data.get("general_topic")
+            general_topic_code_val = topic_data.get("general_topic_code")
+            specific_topic = topic_data.get("specific_topic")
+            
+            # Inicializar campo se não existir
+            if field_code_val not in hierarchy:
+                hierarchy[field_code_val] = {
+                    "name": field,
+                    "code": field_code_val,
+                    "areas": {}
+                }
+            
+            # Inicializar área se não existir
+            if area_code_val not in hierarchy[field_code_val]["areas"]:
+                hierarchy[field_code_val]["areas"][area_code_val] = {
+                    "name": area,
+                    "code": area_code_val,
+                    "general_topics": {}
+                }
+            
+            # Inicializar tópico geral se não existir
+            if general_topic_code_val not in hierarchy[field_code_val]["areas"][area_code_val]["general_topics"]:
+                hierarchy[field_code_val]["areas"][area_code_val]["general_topics"][general_topic_code_val] = {
+                    "name": general_topic,
+                    "code": general_topic_code_val,
+                    "specific_topics": []
+                }
+            
+            # Adicionar tópico específico se não existir
+            specific_topics_list = hierarchy[field_code_val]["areas"][area_code_val]["general_topics"][general_topic_code_val]["specific_topics"]
+            if specific_topic not in specific_topics_list:
+                specific_topics_list.append(specific_topic)
+        
+        return hierarchy
 
 
 # Singleton instance
