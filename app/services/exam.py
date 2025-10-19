@@ -372,10 +372,19 @@ class ExamService(MongoService):
         exam_summaries = []
         for exam_data in exams_data:
             try:
+                # Calcular quantas questões foram respondidas (user_answer não nulo)
+                answered_questions = 0
+                if "questions" in exam_data:
+                    answered_questions = sum(
+                        1 for q in exam_data["questions"] 
+                        if q.get("user_answer") is not None
+                    )
+                
                 summary = ExamSummary(
                     id=exam_data["id"],
                     user_id=exam_data["user_id"],
                     total_questions=exam_data["total_questions"],
+                    answered_questions=answered_questions,
                     total_correct_answers=exam_data.get("total_correct_answers", 0),
                     total_wrong_answers=exam_data.get("total_wrong_answers", 0),
                     status=exam_data["status"],
@@ -618,6 +627,106 @@ class ExamService(MongoService):
         except Exception as e:
             logger.error(f"Erro no fallback de seleção: {e}")
             return []
+    
+    def get_user_totalizers(self, user_id: str) -> Dict[str, Any]:
+        """
+        Obter totalizadores/estatísticas completas de todos os exames do usuário.
+        
+        Retorna métricas agregadas considerando TODOS os exames, não apenas os paginados.
+        """
+        try:
+            # Converter user_id string para ObjectId
+            user_object_id = ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id
+            
+            # Usar agregação MongoDB para calcular estatísticas de forma eficiente
+            collection = self._get_collection()
+            
+            # Pipeline de agregação para calcular todas as métricas
+            pipeline = [
+                {"$match": {"user_id": user_object_id}},
+                {
+                    "$group": {
+                        "_id": None,
+                        "total_exams": {"$sum": 1},
+                        "finished_exams": {
+                            "$sum": {
+                                "$cond": [{"$eq": ["$status", "finished"]}, 1, 0]
+                            }
+                        },
+                        "in_progress_exams": {
+                            "$sum": {
+                                "$cond": [{"$eq": ["$status", "in_progress"]}, 1, 0]
+                            }
+                        },
+                        "not_started_exams": {
+                            "$sum": {
+                                "$cond": [{"$eq": ["$status", "not_started"]}, 1, 0]
+                            }
+                        },
+                        "total_questions_answered": {
+                            "$sum": {
+                                "$cond": [
+                                    {"$eq": ["$status", "finished"]},
+                                    "$total_questions",
+                                    0
+                                ]
+                            }
+                        },
+                        "total_correct_answers": {
+                            "$sum": "$total_correct_answers"
+                        },
+                        "total_wrong_answers": {
+                            "$sum": "$total_wrong_answers"
+                        }
+                    }
+                }
+            ]
+            
+            result = list(collection.aggregate(pipeline))
+            
+            # Se não houver resultados, retornar zeros
+            if not result:
+                return {
+                    "total_exams": 0,
+                    "finished_exams": 0,
+                    "in_progress_exams": 0,
+                    "not_started_exams": 0,
+                    "total_questions_answered": 0,
+                    "total_correct_answers": 0,
+                    "total_wrong_answers": 0,
+                    "average_score": 0.0
+                }
+            
+            stats = result[0]
+            
+            # Calcular média de acerto
+            total_questions = stats.get("total_questions_answered", 0)
+            total_correct = stats.get("total_correct_answers", 0)
+            average_score = round(total_correct / total_questions * 100, 1) if total_questions > 0 else 0.0
+            
+            return {
+                "total_exams": stats.get("total_exams", 0),
+                "finished_exams": stats.get("finished_exams", 0),
+                "in_progress_exams": stats.get("in_progress_exams", 0),
+                "not_started_exams": stats.get("not_started_exams", 0),
+                "total_questions_answered": stats.get("total_questions_answered", 0),
+                "total_correct_answers": stats.get("total_correct_answers", 0),
+                "total_wrong_answers": stats.get("total_wrong_answers", 0),
+                "average_score": average_score
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro ao obter totalizadores do usuário {user_id}: {e}")
+            return {
+                "total_exams": 0,
+                "finished_exams": 0,
+                "in_progress_exams": 0,
+                "not_started_exams": 0,
+                "total_questions_answered": 0,
+                "total_correct_answers": 0,
+                "total_wrong_answers": 0,
+                "average_score": 0.0
+            }
 
 
 # Singleton instance

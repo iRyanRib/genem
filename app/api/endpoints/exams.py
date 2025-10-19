@@ -323,7 +323,7 @@ async def list_user_exams(
         # Buscar exames com todos os filtros
         exams = exam_service.get_user_exams(user_id, skip, limit, **filters)
         
-        # Calcular estatísticas básicas com os mesmos filtros
+        # Calcular estatísticas básicas APENAS da página atual (não todo o histórico)
         total_exams = exam_service.count_user_exams(user_id, **filters)
         finished_exams = [e for e in exams if e.status == "finished"]
         total_questions_answered = sum(e.total_questions for e in finished_exams)
@@ -348,6 +348,42 @@ async def list_user_exams(
         
     except Exception as e:
         logger.error(f"❌ Erro ao listar exames - User: {user_id}, Error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro interno do servidor: {str(e)}"
+        )
+
+
+@router.get("/totalizers/user/{user_id}", response_model=Dict[str, Any])
+async def get_user_totalizers(user_id: str) -> Dict[str, Any]:
+    """
+    Obter totalizadores/estatísticas completas de todos os exames do usuário.
+    
+    Esta rota retorna métricas agregadas considerando TODOS os exames do usuário,
+    independente de paginação. Útil para dashboards e visão geral de desempenho.
+    
+    Args:
+        user_id: ID do usuário
+    
+    Returns:
+        Estatísticas completas do usuário:
+        - total_exams: Total de exames criados
+        - finished_exams: Exames finalizados
+        - in_progress_exams: Exames em progresso
+        - not_started_exams: Exames não iniciados
+        - total_questions_answered: Total de questões respondidas
+        - total_correct_answers: Total de acertos
+        - total_wrong_answers: Total de erros
+        - average_score: Média geral de acerto (%)
+    """
+    logger.info(f"📊 Buscando totalizadores - User: {user_id}")
+    
+    try:
+        totalizers = exam_service.get_user_totalizers(user_id)
+        return totalizers
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao buscar totalizadores - User: {user_id}, Error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro interno do servidor: {str(e)}"

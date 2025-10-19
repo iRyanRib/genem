@@ -97,6 +97,7 @@ class ExamSummary(BaseModel):
     id: str
     user_id: str  # ObjectId do usuário no MongoDB como string
     total_questions: int
+    answered_questions: int = 0  # Contador de questões respondidas (para exames em progresso)
     total_correct_answers: int
     total_wrong_answers: int
     status: ExamStatus
