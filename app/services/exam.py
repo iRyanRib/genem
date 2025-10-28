@@ -28,29 +28,50 @@ class ExamService(MongoService):
     def create_exam(self, exam_data: ExamCreate) -> Exam:
         """Criar um novo exame"""
         logger.info(f"🎯 Criando exame para usuário {exam_data.user_id}")
+        logger.info(f"📝 Dados recebidos - Topics: {exam_data.topics}, Years: {exam_data.years}, Count: {exam_data.question_count}")
+        logger.info(f"🔄 ExamReplicId: {exam_data.exam_replic_id}")
         
         try:
             # Se exam_replic_id for fornecido, replicar exatamente as questões desse exame
             selected_questions = []
-            if getattr(exam_data, 'exam_replic_id', None):
-                replic_id = exam_data.exam_replic_id
+            
+            # Verificar se há ID de replicação
+            replic_id = exam_data.exam_replic_id
+            if replic_id:
                 logger.info(f"🔁 Replicando questões do exame {replic_id} para novo exame")
                 try:
                     existing_exam = self.get_by_id(replic_id)
                     if not existing_exam:
+                        logger.error(f"❌ Exame para replicação não encontrado: {replic_id}")
                         raise ValueError(f"Exame para replicação não encontrado: {replic_id}")
 
+                    logger.info(f"✅ Exame original encontrado com {len(existing_exam.get('questions', []))} questões")
+                    
                     # Extrair question ids do exame existente e buscar cada questão
                     question_ids = [q.get('question_id') for q in existing_exam.get('questions', [])]
-                    for qid in question_ids:
+                    logger.info(f"📋 IDs das questões para replicar: {question_ids}")
+                    
+                    for i, qid in enumerate(question_ids):
                         # Usar serviço de questões para obter objeto Question
                         question_obj = self.question_service.get_question_by_id(str(qid))
                         if question_obj:
                             selected_questions.append(question_obj)
+                            logger.info(f"✅ Questão {i+1}/{len(question_ids)} replicada: {qid}")
+                        else:
+                            logger.warning(f"⚠️ Questão não encontrada para replicar: {qid}")
+                    
+                    logger.info(f"🎯 Total de questões replicadas: {len(selected_questions)}")
+                    
+                    # Para replicação, usar o número exato de questões do exame original
+                    # IGNORAR o question_count passado no request
+                    if len(selected_questions) == 0:
+                        raise ValueError("Nenhuma questão válida encontrada no exame para replicação")
+                        
                 except Exception as e:
-                    logger.error(f"Erro ao replicar exame {replic_id}: {e}")
+                    logger.error(f"❌ Erro ao replicar exame {replic_id}: {e}")
                     raise e
             else:
+                logger.info("🎲 Selecionando questões aleatórias (sem replicação)")
                 # Selecionar questões baseado nos filtros
                 selected_questions = self._select_questions(
                     topics=exam_data.topics,
@@ -151,10 +172,14 @@ class ExamService(MongoService):
         
         # Buscar questões usando agregação para otimizar performance
         question_ids = [ObjectId(q["question_id"]) for q in exam_data["questions"]]
-        
+
         # Usar agregação MongoDB para buscar questões sem gabarito
+        # Importante: preservar a ordem das questões conforme salvo no exame original
         pipeline = [
             {"$match": {"_id": {"$in": question_ids}}},
+            # Criar um campo auxiliar com o índice da questão na lista original
+            {"$addFields": {"__order": {"$indexOfArray": [question_ids, "$_id"]}}},
+            {"$sort": {"__order": 1}},
             {"$project": {
                 "_id": 1,
                 "year": 1,
@@ -167,13 +192,13 @@ class ExamService(MongoService):
                 # isCorrect removido da projeção
             }}
         ]
-        
+
         try:
             questions_collection = self.question_service._get_collection()
             questions_cursor = questions_collection.aggregate(pipeline)
             questions_data = list(questions_cursor)
-            
-            # Converter para formato esperado
+
+            # Converter para formato esperado preservando ordem
             questions_for_user = []
             for q_data in questions_data:
                 question_for_user = QuestionForExam(
@@ -185,10 +210,10 @@ class ExamService(MongoService):
                     alternatives=q_data.get("alternatives", [])
                 )
                 questions_for_user.append(question_for_user)
-            
+
         except Exception as e:
             logger.warning(f"Erro na agregação, usando busca individual: {e}")
-            # Fallback para busca individual se agregação falhar
+            # Fallback para busca individual se agregação falhar (preserva ordem)
             questions_for_user = []
             for exam_question in exam.questions:
                 question = self.question_service.get_question_by_id(exam_question.question_id)
@@ -201,7 +226,7 @@ class ExamService(MongoService):
                         }
                         for alt in question.alternatives
                     ]
-                    
+
                     question_for_user = QuestionForExam(
                         id=question.id,
                         year=question.year,

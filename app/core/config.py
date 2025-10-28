@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     
     # JWT
     JWT_PRIVATE_KEY: Optional[str] = None
+    JWT_SECRET_KEY: str = "jwt_stub"  # Em produção, deve vir da variável de ambiente
     
     # Admin
     LOGIN: Optional[str] = None

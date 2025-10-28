@@ -22,6 +22,9 @@ mcp-youtube-search = "^0.1.4"
 litellm = "^1.67.6"
 pymongo = "4.6.0"
 tavily-python = "0.7.3"
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+cryptography = "^46.0.3"
+bcrypt = ">=4.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"
