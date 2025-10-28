@@ -442,7 +442,7 @@ class ExamService(MongoService):
         """Selecionar questões baseado nos filtros usando agregação MongoDB"""
         
         try:
-            # Se não há filtros específicos, selecionar 5 questões de cada disciplina
+            # Se não há filtros específicos, selecionar questões distribuidas por disciplina
             if not topics and not years:
                 return self._select_questions_by_discipline(question_count)
             
@@ -510,10 +510,9 @@ class ExamService(MongoService):
             return self._select_questions_fallback(topics, years, question_count)
     
     def _select_questions_by_discipline(self, question_count: int) -> List[Question]:
-        """Selecionar questões por disciplina usando agregação (5 de cada disciplina - aleatório)"""
+        """Selecionar questões por disciplina usando agregação (distribuição proporcional por disciplina)"""
         try:
             all_questions = []
-            questions_per_discipline = 5
             
             # Lista das disciplinas principais do ENEM
             disciplines = [
@@ -523,13 +522,22 @@ class ExamService(MongoService):
                 DisciplineType.MATEMATICA
             ]
             
+            # Calcular quantas questões por disciplina baseado no total solicitado
+            questions_per_discipline = max(1, question_count // len(disciplines))
+            remaining_questions = question_count % len(disciplines)
+            
             # Buscar por disciplina usando agregação MongoDB para seleção aleatória
-            for discipline in disciplines:
+            for i, discipline in enumerate(disciplines):
                 try:
+                    # Adicionar uma questão extra para as primeiras disciplinas se houver resto
+                    current_discipline_count = questions_per_discipline
+                    if i < remaining_questions:
+                        current_discipline_count += 1
+                    
                     # Pipeline de agregação para seleção aleatória
                     pipeline = [
                         {"$match": {"discipline": discipline.value}},
-                        {"$sample": {"size": questions_per_discipline}}
+                        {"$sample": {"size": current_discipline_count}}
                     ]
                     
                     questions_collection = self.question_service._get_collection()
@@ -553,11 +561,11 @@ class ExamService(MongoService):
                     logger.warning(f"Erro ao buscar questões da disciplina {discipline.value}: {e}")
                     continue
             
-            # Limitar ao total solicitado se necessário
+            # Limitar ao total solicitado se necessário (garantia extra)
             if len(all_questions) > question_count:
                 all_questions = random.sample(all_questions, question_count)
             
-            logger.info(f"Selecionadas {len(all_questions)} questões (5 por disciplina)")
+            logger.info(f"Selecionadas {len(all_questions)} questões distribuídas por disciplina (solicitadas: {question_count})")
             return all_questions
             
         except Exception as e:
