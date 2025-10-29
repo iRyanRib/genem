@@ -50,6 +50,31 @@ class Settings(BaseSettings):
     
     # GROQ API
     GROQ_API_KEY: Optional[str] = None
+    GROQ_API_TOKENS: Optional[str] = None  # Lista de tokens separados por vírgula
+    GROQ_MODEL_NAME: str = "meta-llama/llama-4-scout-17b-16e-instruct" 
+    
+    def get_groq_tokens(self) -> List[str]:
+        """Retorna a lista de tokens GROQ disponíveis"""
+        tokens = []
+        
+        # Adiciona o token principal se existir
+        if self.GROQ_API_KEY:
+            tokens.append(self.GROQ_API_KEY)
+        
+        # Adiciona tokens adicionais se existirem
+        if self.GROQ_API_TOKENS:
+            additional_tokens = [token.strip() for token in self.GROQ_API_TOKENS.split(",") if token.strip()]
+            tokens.extend(additional_tokens)
+        
+        # Remove duplicatas mantendo a ordem
+        seen = set()
+        unique_tokens = []
+        for token in tokens:
+            if token not in seen:
+                seen.add(token)
+                unique_tokens.append(token)
+        
+        return unique_tokens
     
     # Google ADK
     GOOGLE_API_KEY: Optional[str] = None
