@@ -31,8 +31,8 @@ class Settings(BaseSettings):
     LOG_FILE_PATH: Optional[str] = None
     
     # MongoDB
-    MONGODB_CONNECTION_STRING: Optional[str] = None
-    DATABASE_NAME: Optional[str] = None
+    MONGODB_CONNECTION_STRING: Optional[str] = os.getenv("MONGODB_CONNECTION_STRING", "mongodb://localhost:27017")
+    DATABASE_NAME: Optional[str] = os.getenv("DATABASE_NAME", "genem")
     DATABASE_USER: Optional[str] = None
     DATABASE_PASSWORD: Optional[str] = None
     DATABASE_HOST: Optional[str] = None
@@ -51,8 +51,8 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     
     # Google ADK
-    GOOGLE_API_KEY: Optional[str] = None
-    GOOGLE_MODEL_NAME: Optional[str] = None
+    GOOGLE_API_KEY: Optional[str] = os.getenv("GOOGLE_API_KEY", None)
+    GOOGLE_MODEL_NAME: Optional[str] = os.getenv("GOOGLE_MODEL_NAME", "gemini-2.0-flash")
     APP_NAME: str = "genem_enem_agent"
     
     model_config = SettingsConfigDict(

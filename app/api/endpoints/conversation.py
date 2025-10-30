@@ -71,7 +71,8 @@ async def open_conversation(request: OpenConversationRequest) -> OpenConversatio
                 "question_id": request.question_id,
                 "discipline": question_details.get("discipline"),
                 "year": question_details.get("year"),
-                "sources_count": agent_result["sources_count"]
+                "sources_count": agent_result["sources_count"],
+                "sources": agent_result.get("sources", [])  # Store actual sources for reference
             }
         )
         
@@ -170,12 +171,23 @@ async def add_message(request: AddMessageRequest) -> AddMessageResponse:
         )
         
         # Send message to agent (agent will have access to conversation history through ADK session)
+        logger.info(f"🤖 Enviando mensagem para agente ADK...")
         agent_result = await add_message_to_conversation(
             user_id=request.user_id,
             session_id=request.session_id,
             message=request.message,
             use_structured_output=request.structured_output
         )
+        
+        # Check if there was an error with the agent
+        if "error" in agent_result:
+            logger.error(f"❌ Erro do agente ADK: {agent_result['error']}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Erro do agente: {agent_result['error']}"
+            )
+        
+        logger.info(f"✅ Resposta recebida do agente ADK")
         
         # Create agent response message
         agent_message = MessageModel(
@@ -194,6 +206,8 @@ async def add_message(request: AddMessageRequest) -> AddMessageResponse:
             message=agent_message
         )
         
+        logger.info(f"✅ Mensagem adicionada à conversa com sucesso")
+        
         return AddMessageResponse(
             session_id=request.session_id,
             conversation_id=str(conversation.id),
@@ -205,6 +219,9 @@ async def add_message(request: AddMessageRequest) -> AddMessageResponse:
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"❌ Erro ao adicionar mensagem - Session: {request.session_id}, Error: {str(e)}")
+        logger.error(f"❌ Tipo do erro: {type(e).__name__}")
+        logger.error(f"❌ Detalhes completos: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro interno do servidor: {str(e)}"
