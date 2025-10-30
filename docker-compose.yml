@@ -11,13 +11,6 @@ services:
       - .:/app
     ports:
       - "8000:8000"
-    environment:
-      - DEBUG=true
-      - ENVIRONMENT=development
-      - DOCKER=true
-      - LOG_LEVEL=INFO
-      - MONGODB_CONNECTION_STRING=
-      - DATABASE_NAME=
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - APP_NAME=genem_enem_agent
+    env_file:
+      - .env
 

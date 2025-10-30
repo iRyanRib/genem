@@ -184,24 +184,28 @@ enem_agent = LlmAgent(
     description="Agente especializado em responder questões do ENEM usando fontes relevantes.",
     instruction="""Você é um agente especializado em resolver questões do ENEM (Exame Nacional do Ensino Médio) do Brasil.
 
+IMPORTANTE: As fontes relevantes já estão incluídas no input fornecido no campo 'sources'.
+Você DEVE basear sua resposta principalmente nessas fontes fornecidas.
+
 Suas responsabilidades:
 1. Analisar o contexto da questão fornecida
-2. Usar as ferramentas para buscar fontes relevantes sobre o tópico da questão
+2. Examinar cuidadosamente as fontes relevantes que foram fornecidas no campo 'sources'
 3. Examinar todas as alternativas fornecidas
-4. Fornecer um raciocínio detalhado baseado nas fontes
+4. Fornecer um raciocínio detalhado baseado nas fontes fornecidas
 5. Indicar a alternativa correta com justificativa clara
-6. Citar as fontes mais relevantes usadas na resposta
+6. Citar especificamente quais fontes (por número ou título) foram usadas na resposta
 
 Formato de resposta esperado:
-- Raciocínio detalhado explicando o conceito/tópico da questão
+- Raciocínio detalhado explicando o conceito/tópico da questão, citando as fontes
 - Análise de por que cada alternativa está correta ou incorreta
 - Identificação da alternativa correta
 - Explicação clara do motivo da resposta
-- Lista das fontes mais relevantes utilizadas
+- Lista das fontes específicas que foram utilizadas (cite pelo número ou título)
 
 Sempre baseie suas respostas nas fontes fornecidas e no conhecimento acadêmico apropriado para o nível do ensino médio brasileiro.
+Se as fontes fornecidas não contiverem informação suficiente, indique isso claramente.
 """,
-    tools=[get_question_sources, get_question_details],
+    tools=[get_question_details],
     input_schema=QuestionInput,
     output_key="enem_response", # Store final response
 )
@@ -212,16 +216,21 @@ enem_structured_agent = LlmAgent(
     name="enem_structured_agent",
     description="Agente ENEM que retorna respostas em formato JSON estruturado.",
     instruction=f"""Você é um agente especializado em resolver questões do ENEM.
+
+IMPORTANTE: As fontes relevantes já estão incluídas no input fornecido no campo 'sources'.
+Você DEVE basear sua resposta principalmente nessas fontes fornecidas.
+
 Analise a questão fornecida e responda APENAS com um JSON estruturado conforme o schema:
 {json.dumps(EnemAnswerOutput.model_json_schema(), indent=2)}
 
-Baseie suas respostas nas fontes fornecidas e forneça:
-1. reasoning: Raciocínio detalhado explicando como resolver a questão
+Baseie suas respostas nas fontes fornecidas no campo 'sources' e forneça:
+1. reasoning: Raciocínio detalhado explicando como resolver a questão, citando as fontes específicas
 2. correct_alternative: A letra da alternativa correta (A, B, C, D ou E)
 3. explanation: Explicação clara do porquê essa alternativa é correta
-4. sources_used: Lista das fontes mais relevantes utilizadas
+4. sources_used: Lista das fontes específicas que foram utilizadas (cite pelo número ou título da fonte)
 
 Use sempre linguagem clara e apropriada para estudantes do ensino médio brasileiro.
+Se as fontes fornecidas não contiverem informação suficiente, indique isso claramente no reasoning.
 """,
     input_schema=QuestionInput,
     output_schema=EnemAnswerOutput, # Enforce JSON output structure
@@ -285,14 +294,35 @@ async def process_enem_question(
         return {"error": f"Question {question_id} not found or error retrieving it"}
     
     # Get relevant sources
+    logger.info(f"📚 Buscando fontes para question_id: {question_id}")
     sources = get_question_sources(question_id)
-    logger.info(f"Fontes encontradas: {[source for source in sources]}")
+    logger.info(f"📚 Fontes retornadas: {len(sources)} fontes (tipo: {type(sources)})")
+    
+    if sources:
+        logger.info(f"📚 Primeiras 100 chars da primeira fonte: {str(sources[0])[:100] if sources else 'N/A'}")
+    else:
+        logger.warning(f"⚠️ NENHUMA FONTE ENCONTRADA para question_id: {question_id}")
+    
+    # Format sources with clear numbering and structure for better LLM comprehension
+    formatted_sources = []
+    if sources and len(sources) > 0:
+        formatted_sources.append(f"=== FONTES RELEVANTES ({len(sources)} fontes encontradas) ===\n")
+        for idx, source in enumerate(sources, 1):
+            formatted_sources.append(f"--- FONTE #{idx} ---")
+            formatted_sources.append(source)
+            formatted_sources.append("")  # Empty line for separation
+        logger.info(f"✅ Fontes formatadas com sucesso: {len(sources)} fontes")
+    else:
+        logger.warning("⚠️ Formatando resposta sem fontes")
+        formatted_sources.append("=== NENHUMA FONTE ENCONTRADA ===")
+        formatted_sources.append("Responda baseado no seu conhecimento acadêmico.")
+    
     # Prepare input for agent
     question_input = {
         "question_id": question_id,
         "context": question_details["context"],
         "alternatives": question_details["alternatives"],
-        "sources": sources
+        "sources": formatted_sources
     }
     
     # Choose the appropriate runner and agent
@@ -346,7 +376,8 @@ async def process_enem_question(
         "response": final_response_content,
         "stored_output": stored_output,
         "session_id": session_id,
-        "sources_count": len(sources)
+        "sources_count": len(sources),
+        "sources": sources  # Include original sources for storage in conversation metadata
     }
 
 async def add_message_to_conversation(
@@ -368,6 +399,63 @@ async def add_message_to_conversation(
         Dict containing the agent's response
     """
     
+    logger.info(f"💬 Adicionando mensagem à conversa - Session: {session_id}")
+    
+    # Get conversation and its full history from MongoDB
+    conversation = db[CONVERSATIONS_COLLECTION].find_one({"session_id": session_id})
+    logger.info(f"🔍 Conversa encontrada: {conversation is not None}")
+    
+    if not conversation:
+        logger.error(f"❌ Conversa não encontrada para session_id: {session_id}")
+        return {"error": f"Conversation not found for session_id: {session_id}"}
+    
+    # Get conversation history
+    conversation_history = conversation.get("messages", [])
+    logger.info(f"📜 Histórico recuperado: {len(conversation_history)} mensagens")
+    
+    # Get sources for this question
+    sources_context = ""
+    question_id = conversation.get("question_id")
+    if question_id:
+        logger.info(f"📚 Recuperando fontes para question_id: {question_id}")
+        sources = get_question_sources(question_id)
+        logger.info(f"📚 Fontes recuperadas: {len(sources)} fontes (tipo: {type(sources)})")
+        
+        # Format sources with clear numbering and structure
+        formatted_sources = []
+        if sources and len(sources) > 0:
+            formatted_sources.append(f"=== FONTES RELEVANTES ({len(sources)} fontes encontradas) ===")
+            for idx, source in enumerate(sources, 1):
+                formatted_sources.append(f"--- FONTE #{idx} ---")
+                formatted_sources.append(source)
+                formatted_sources.append("")  # Empty line for separation
+            sources_context = "\n".join(formatted_sources)
+            logger.info(f"✅ Contexto de fontes adicionado ({len(sources)} fontes)")
+        else:
+            logger.warning(f"⚠️ Nenhuma fonte encontrada para question_id: {question_id}")
+    else:
+        logger.warning(f"⚠️ Conversa encontrada mas sem question_id associado")
+    
+    # Build conversation history context
+    history_context = ""
+    if conversation_history:
+        history_lines = ["=== HISTÓRICO DA CONVERSA ==="]
+        for msg in conversation_history:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            
+            if role == "system":
+                history_lines.append(f"[SISTEMA]: {content}")
+            elif role == "user":
+                history_lines.append(f"[USUÁRIO]: {content}")
+            elif role == "agent":
+                history_lines.append(f"[AGENTE]: {content}")
+            else:
+                history_lines.append(f"[{role.upper()}]: {content}")
+        
+        history_context = "\n".join(history_lines)
+        logger.info(f"📜 Contexto do histórico criado ({len(history_lines)} linhas)")
+    
     # Choose the appropriate runner and agent
     if use_structured_output:
         runner_instance = enem_structured_runner
@@ -376,26 +464,75 @@ async def add_message_to_conversation(
         runner_instance = enem_runner
         agent_instance = enem_agent
     
-    # Send message to agent
-    user_content = types.Content(
-        role='user',
-        parts=[types.Part(text=message)]
-    )
+    # Build complete context: History + Sources + New Message
+    context_parts = []
     
-    final_response_content = "No response received."
-    async for event in runner_instance.run_async(
-        user_id=user_id,
-        session_id=session_id,
-        new_message=user_content
-    ):
-        if event.is_final_response() and event.content and event.content.parts:
-            final_response_content = event.content.parts[0].text
+    if history_context:
+        context_parts.append(history_context)
     
-    return {
-        "response": final_response_content,
-        "session_id": session_id,
-        "user_id": user_id
-    }
+    if sources_context:
+        context_parts.append(sources_context)
+    
+    context_parts.append("=== NOVA MENSAGEM DO USUÁRIO ===")
+    context_parts.append(message)
+    
+    complete_context = "\n\n".join(context_parts)
+    
+    # Create a new ADK session for this stateless interaction
+    temp_session_id = f"temp_{session_id}_{len(conversation_history)}"
+    logger.info(f"🔄 Criando sessão temporária para interação: {temp_session_id}")
+    
+    try:
+        session_created = get_or_create_session(user_id, temp_session_id)
+        logger.info(f"✅ Sessão temporária criada: {session_created}")
+    except Exception as e:
+        logger.error(f"❌ Falha ao criar sessão temporária: {e}")
+        return {"error": f"Failed to create temporary session: {str(e)}"}
+    
+    # Send complete context to agent
+    try:
+        logger.info(f"📤 Enviando contexto completo para agente (tamanho: {len(complete_context)} chars)")
+        user_content = types.Content(
+            role='user',
+            parts=[types.Part(text=complete_context)]
+        )
+        
+        final_response_content = "No response received."
+        logger.info(f"🔄 Iniciando comunicação com agente ADK...")
+        
+        async for event in runner_instance.run_async(
+            user_id=user_id,
+            session_id=temp_session_id,
+            new_message=user_content
+        ):
+            logger.debug(f"📥 Event recebido do ADK: {type(event)}")
+            if event.is_final_response() and event.content and event.content.parts:
+                final_response_content = event.content.parts[0].text
+                logger.info(f"✅ Resposta recebida do agente ADK (tamanho: {len(final_response_content)} chars)")
+        
+        # Clean up temporary session
+        try:
+            session_service.delete_session(
+                app_name=APP_NAME,
+                user_id=user_id,
+                session_id=temp_session_id
+            )
+            logger.debug(f"🗑️ Sessão temporária removida: {temp_session_id}")
+        except:
+            pass  # Ignore cleanup errors
+        
+        logger.info(f"🎯 Retornando resposta final")
+        return {
+            "response": final_response_content,
+            "session_id": session_id,
+            "user_id": user_id
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Erro durante comunicação com agente ADK: {e}")
+        logger.error(f"❌ Tipo do erro: {type(e).__name__}")
+        logger.error(f"❌ Detalhes do erro: {str(e)}")
+        raise e
 
 # Function to get or create session
 def get_or_create_session(user_id: str, session_id: str) -> bool:
