@@ -1,9 +1,11 @@
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, Annotated
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, HTTPException, status, Query, Depends
 from fastapi.responses import JSONResponse
 
+from app.api.dependencies.auth import get_current_active_user
+from app.schemas.user import User
 from app.schemas.exam import (
     ExamCreate, ExamUpdate, ExamFinalize, ExamResponse,
     ExamForUser, ExamDetails, ExamSummary
@@ -17,7 +19,10 @@ router = APIRouter()
 
 
 @router.post("/create", response_model=ExamResponse)
-async def create_exam(exam_data: ExamCreate) -> ExamResponse:
+async def create_exam(
+    exam_data: ExamCreate,
+    current_user: Annotated[User, Depends(get_current_active_user)]
+) -> ExamResponse:
     """
     Criar um novo exame.
     
@@ -25,14 +30,32 @@ async def create_exam(exam_data: ExamCreate) -> ExamResponse:
     - topics: lista de tópicos específicos (filtra pelo array questionTopics)
     - years: lista de anos das questões
     - question_count: quantidade de questões (padrão: 25, máximo: 100)
+    - exam_replic_id: ID do exame para replicar questões exatas
     
     Se nenhum filtro for passado, seleciona questões aleatórias do banco.
     A seleção é otimizada e feita diretamente no MongoDB usando agregação.
     """
-    logger.info(f"🎯 Criando exame - User: {exam_data.user_id}, Questões: {exam_data.question_count}")
+    logger.info(f"📨 Request de criação de exame recebido")
+    logger.info(f"📋 ExamData raw: topics={exam_data.topics}, years={exam_data.years}, count={exam_data.question_count}")
+    logger.info(f"🔄 ExamReplicId recebido: {exam_data.exam_replic_id}")
+    logger.info(f"📝 ExamData dict: {exam_data.model_dump()}")
+    logger.info(f"🔍 HasAttr exam_replic_id: {hasattr(exam_data, 'exam_replic_id')}")
+    
+    # Criar novo objeto com user_id do token
+    exam_create_data = ExamCreate(
+        user_id=current_user.id,
+        topics=exam_data.topics,
+        exam_replic_id=exam_data.exam_replic_id,
+        years=exam_data.years,
+        question_count=exam_data.question_count
+    )
+    
+    logger.info(f"🎯 Criando exame - User: {exam_create_data.user_id}, Questões: {exam_create_data.question_count}")
+    logger.info(f"🔄 ExamReplicId processado: {exam_create_data.exam_replic_id}")
+    logger.info(f"📝 ExamCreateData dict: {exam_create_data.model_dump()}")
     
     try:
-        exam = exam_service.create_exam(exam_data)
+        exam = exam_service.create_exam(exam_create_data)
         
         return ExamResponse(
             exam_id=exam.id,
@@ -41,7 +64,7 @@ async def create_exam(exam_data: ExamCreate) -> ExamResponse:
         )
         
     except Exception as e:
-        logger.error(f"❌ Erro ao criar exame - User: {exam_data.user_id}, Error: {str(e)}")
+        logger.error(f"❌ Erro ao criar exame - User: {exam_create_data.user_id}, Error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro interno do servidor: {str(e)}"
@@ -49,7 +72,10 @@ async def create_exam(exam_data: ExamCreate) -> ExamResponse:
 
 
 @router.get("/{exam_id}", response_model=ExamForUser)
-async def get_exam(exam_id: str, user_id: str = Query(...)) -> ExamForUser:
+async def get_exam(
+    exam_id: str,
+    current_user: Annotated[User, Depends(get_current_active_user)]
+) -> ExamForUser:
     """
     Obter exame por ID para responder.
     
@@ -59,8 +85,8 @@ async def get_exam(exam_id: str, user_id: str = Query(...)) -> ExamForUser:
     
     Args:
         exam_id: ID do exame
-        user_id: ObjectId do usuário (para autorização)
     """
+    user_id = current_user.id
     logger.info(f"📖 Buscando exame - ID: {exam_id}, User: {user_id}")
     
     try:
@@ -85,7 +111,10 @@ async def get_exam(exam_id: str, user_id: str = Query(...)) -> ExamForUser:
 
 
 @router.get("/{exam_id}/details", response_model=ExamDetails)
-async def get_exam_details(exam_id: str, user_id: str = Query(...)) -> ExamDetails:
+async def get_exam_details(
+    exam_id: str,
+    current_user: Annotated[User, Depends(get_current_active_user)]
+) -> ExamDetails:
     """
     Obter exame com detalhes completos.
     
@@ -94,8 +123,8 @@ async def get_exam_details(exam_id: str, user_id: str = Query(...)) -> ExamDetai
     
     Args:
         exam_id: ID do exame
-        user_id: ID do usuário (para autorização)
     """
+    user_id = current_user.id
     logger.info(f"🔍 Buscando detalhes do exame - ID: {exam_id}, User: {user_id}")
     
     try:
@@ -120,7 +149,11 @@ async def get_exam_details(exam_id: str, user_id: str = Query(...)) -> ExamDetai
 
 
 @router.patch("/{exam_id}/answer", response_model=ExamResponse)
-async def update_answer(exam_id: str, update_data: ExamUpdate, user_id: str = Query(...)) -> ExamResponse:
+async def update_answer(
+    exam_id: str,
+    update_data: ExamUpdate,
+    current_user: Annotated[User, Depends(get_current_active_user)]
+) -> ExamResponse:
     """
     Salvar resposta do usuário para uma questão.
     
@@ -132,8 +165,8 @@ async def update_answer(exam_id: str, update_data: ExamUpdate, user_id: str = Qu
     Args:
         exam_id: ID do exame
         update_data: dados da resposta (question_id + user_answer)
-        user_id: ID do usuário (para autorização)
     """
+    user_id = current_user.id
     logger.info(f"📝 Atualizando resposta - Exame: {exam_id}, User: {user_id}, Questão: {update_data.question_id}")
     
     try:
@@ -167,7 +200,10 @@ async def update_answer(exam_id: str, update_data: ExamUpdate, user_id: str = Qu
 
 
 @router.post("/{exam_id}/finalize", response_model=ExamResponse)
-async def finalize_exam(exam_id: str, user_id: str = Query(...)) -> ExamResponse:
+async def finalize_exam(
+    exam_id: str,
+    current_user: Annotated[User, Depends(get_current_active_user)]
+) -> ExamResponse:
     """
     Finalizar exame e calcular métricas.
     
@@ -181,8 +217,8 @@ async def finalize_exam(exam_id: str, user_id: str = Query(...)) -> ExamResponse
     
     Args:
         exam_id: ID do exame
-        user_id: ID do usuário (para autorização)
     """
+    user_id = current_user.id
     logger.info(f"🏁 Finalizando exame - ID: {exam_id}, User: {user_id}")
     
     try:
@@ -216,14 +252,17 @@ async def finalize_exam(exam_id: str, user_id: str = Query(...)) -> ExamResponse
 
 
 @router.delete("/{exam_id}")
-async def delete_exam(exam_id: str, user_id: str = Query(...)) -> Dict[str, Any]:
+async def delete_exam(
+    exam_id: str,
+    current_user: Annotated[User, Depends(get_current_active_user)]
+) -> Dict[str, Any]:
     """
     Deletar exame.
     
     Args:
         exam_id: ID do exame
-        user_id: ID do usuário (para autorização)
     """
+    user_id = current_user.id
     logger.info(f"🗑️ Deletando exame - ID: {exam_id}, User: {user_id}")
     
     try:
@@ -250,9 +289,9 @@ async def delete_exam(exam_id: str, user_id: str = Query(...)) -> Dict[str, Any]
         )
 
 
-@router.get("/user/{user_id}", response_model=Dict[str, Any])
+@router.get("/user/me", response_model=Dict[str, Any])
 async def list_user_exams(
-    user_id: str,
+    current_user: Annotated[User, Depends(get_current_active_user)],
     skip: int = Query(0, ge=0, description="Número de exames a pular"),
     limit: int = Query(50, ge=1, le=100, description="Limite de exames por página"),
     status: Optional[str] = Query(None, description="Filtrar por status do exame (not_started, in_progress, finished)"),
@@ -260,10 +299,9 @@ async def list_user_exams(
     created_before: Optional[str] = Query(None, description="Filtrar exames criados antes desta data (ISO 8601: YYYY-MM-DD ou YYYY-MM-DDTHH:MM:SS)")
 ) -> Dict[str, Any]:
     """
-    Listar todos os exames de um usuário com filtros de data e status.
+    Listar todos os exames do usuário autenticado com filtros de data e status.
     
     Args:
-        user_id: ID do usuário
         skip: Número de exames a pular para paginação
         limit: Limite de exames por página (máximo 100)
         status: Status do exame (not_started, in_progress, finished)
@@ -273,6 +311,7 @@ async def list_user_exams(
     Returns:
         Lista de exames do usuário com informações resumidas
     """
+    user_id = current_user.id
     logger.info(f"📋 Listando exames - User: {user_id}, Skip: {skip}, Limit: {limit}, Status: {status}, After: {created_after}, Before: {created_before}")
     
     try:
@@ -354,16 +393,15 @@ async def list_user_exams(
         )
 
 
-@router.get("/totalizers/user/{user_id}", response_model=Dict[str, Any])
-async def get_user_totalizers(user_id: str) -> Dict[str, Any]:
+@router.get("/totalizers/me", response_model=Dict[str, Any])
+async def get_user_totalizers(
+    current_user: Annotated[User, Depends(get_current_active_user)]
+) -> Dict[str, Any]:
     """
-    Obter totalizadores/estatísticas completas de todos os exames do usuário.
+    Obter totalizadores/estatísticas completas de todos os exames do usuário autenticado.
     
     Esta rota retorna métricas agregadas considerando TODOS os exames do usuário,
     independente de paginação. Útil para dashboards e visão geral de desempenho.
-    
-    Args:
-        user_id: ID do usuário
     
     Returns:
         Estatísticas completas do usuário:
@@ -376,6 +414,7 @@ async def get_user_totalizers(user_id: str) -> Dict[str, Any]:
         - total_wrong_answers: Total de erros
         - average_score: Média geral de acerto (%)
     """
+    user_id = current_user.id
     logger.info(f"📊 Buscando totalizadores - User: {user_id}")
     
     try:

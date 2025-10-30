@@ -4,14 +4,30 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.api.dependencies.auth import get_current_active_user, get_current_active_superuser
-from app.schemas.user import User, UserCreate, UserUpdate
+from app.schemas.user import User, UserCreate, UserUpdate, Token
 from app.services.user import user_service
 from app.utils.security import create_access_token
 
 router = APIRouter()
 
 
-@router.post("/login/access-token")
+@router.post("/register", response_model=User)
+def register(user_in: UserCreate) -> Any:
+    """
+    Registrar novo usuário (rota pública)
+    """
+    user = user_service.get_by_email(email=user_in.email)
+    if user:
+        raise HTTPException(
+            status_code=400,
+            detail="Já existe um usuário com este email.",
+        )
+    
+    user = user_service.create(obj_in=user_in)
+    return user
+
+
+@router.post("/login/access-token", response_model=Token)
 def login_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ) -> Any:
@@ -25,8 +41,8 @@ def login_access_token(
             detail="Email ou senha incorretos",
         )
     
-    access_token = create_access_token(subject=str(user.id))
-    return {"access_token": access_token, "token_type": "bearer"}
+    access_token = create_access_token(subject=user.id)
+    return Token(access_token=access_token, token_type="bearer")
 
 
 @router.get("/me", response_model=User)
@@ -59,7 +75,7 @@ def read_users(
     limit: int = 100
 ) -> Any:
     """
-    Recuperar usuários
+    Recuperar usuários (apenas superusuários)
     """
     users = user_service.get_multi(skip=skip, limit=limit)
     return users
@@ -72,7 +88,7 @@ def create_user(
     current_user: Annotated[User, Depends(get_current_active_superuser)]
 ) -> Any:
     """
-    Criar novo usuário
+    Criar novo usuário (apenas superusuários)
     """
     user = user_service.get_by_email(email=user_in.email)
     if user:
@@ -87,11 +103,11 @@ def create_user(
 
 @router.get("/{user_id}", response_model=User)
 def read_user_by_id(
-    user_id: int,
+    user_id: str,
     current_user: Annotated[User, Depends(get_current_active_superuser)]
 ) -> Any:
     """
-    Obter um usuário específico pelo id
+    Obter um usuário específico pelo id (apenas superusuários)
     """
     user = user_service.get(id=user_id)
     if not user:
@@ -105,12 +121,12 @@ def read_user_by_id(
 @router.put("/{user_id}", response_model=User)
 def update_user(
     *,
-    user_id: int,
+    user_id: str,
     user_in: UserUpdate,
     current_user: Annotated[User, Depends(get_current_active_superuser)]
 ) -> Any:
     """
-    Atualizar um usuário
+    Atualizar um usuário (apenas superusuários)
     """
     user = user_service.get(id=user_id)
     if not user:

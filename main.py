@@ -41,7 +41,7 @@ logger.info("🌐 Configurando CORS em modo permissivo para desenvolvimento")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Permitir todas as origens em desenvolvimento
-    allow_credentials=False,
+    allow_credentials=True,  # Permitir credentials para autenticação
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
     allow_headers=["*"],
 )

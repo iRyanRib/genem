@@ -176,7 +176,9 @@ class MongoService:
                 {"$set": update_data}
             )
             
-            if result.modified_count > 0:
+            # Retornar o documento atualizado se a operação foi bem-sucedida
+            # (mesmo se não houve mudanças - matched_count > 0)
+            if result.matched_count > 0:
                 return self.get_by_id(id)
             return None
             

@@ -45,14 +45,16 @@ class ExamBase(BaseModel):
 
 class ExamCreate(BaseModel):
     """Dados para criação do exame"""
-    user_id: str  # ObjectId do usuário no MongoDB como string
+    user_id: Optional[str] = None  # Será preenchido automaticamente no backend
     topics: Optional[List[str]] = None
     exam_replic_id: Optional[str] = Field(default=None, alias='examReplicId')
     years: Optional[List[int]] = None
     question_count: int = Field(default=25, ge=1, le=100)
     
-    @validator('user_id', pre=True)
+    @validator('user_id', pre=True, always=True)
     def validate_user_id(cls, v):
+        if v is None:
+            return None  # Será preenchido no backend
         if isinstance(v, ObjectId):
             return str(v)
         if isinstance(v, str) and ObjectId.is_valid(v):
@@ -61,7 +63,7 @@ class ExamCreate(BaseModel):
     
     class Config:
         arbitrary_types_allowed = True
-        allow_population_by_field_name = True
+        populate_by_name = True  # Pydantic V2: renamed from allow_population_by_field_name
 
 
 class ExamUpdate(BaseModel):
