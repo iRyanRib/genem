@@ -36,7 +36,7 @@ async def create_exam(
     A seleção é otimizada e feita diretamente no MongoDB usando agregação.
     """
     logger.info(f"📨 Request de criação de exame recebido")
-    logger.info(f"📋 ExamData raw: topics={exam_data.topics}, years={exam_data.years}, count={exam_data.question_count}")
+    logger.info(f"📋 ExamData raw: topics={exam_data.topics}, years={exam_data.years}, disciplines={exam_data.disciplines}, count={exam_data.question_count}")
     logger.info(f"🔄 ExamReplicId recebido: {exam_data.exam_replic_id}")
     logger.info(f"📝 ExamData dict: {exam_data.model_dump()}")
     logger.info(f"🔍 HasAttr exam_replic_id: {hasattr(exam_data, 'exam_replic_id')}")
@@ -47,6 +47,7 @@ async def create_exam(
         topics=exam_data.topics,
         exam_replic_id=exam_data.exam_replic_id,
         years=exam_data.years,
+        disciplines=exam_data.disciplines,
         question_count=exam_data.question_count
     )
     

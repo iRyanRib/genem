@@ -28,7 +28,7 @@ class ExamService(MongoService):
     def create_exam(self, exam_data: ExamCreate) -> Exam:
         """Criar um novo exame"""
         logger.info(f"🎯 Criando exame para usuário {exam_data.user_id}")
-        logger.info(f"📝 Dados recebidos - Topics: {exam_data.topics}, Years: {exam_data.years}, Count: {exam_data.question_count}")
+        logger.info(f"📝 Dados recebidos - Topics: {exam_data.topics}, Years: {exam_data.years}, Disciplines: {exam_data.disciplines}, Count: {exam_data.question_count}")
         logger.info(f"🔄 ExamReplicId: {exam_data.exam_replic_id}")
         
         try:
@@ -76,6 +76,7 @@ class ExamService(MongoService):
                 selected_questions = self._select_questions(
                     topics=exam_data.topics,
                     years=exam_data.years,
+                    disciplines=exam_data.disciplines,
                     question_count=exam_data.question_count
                 )
             
@@ -462,13 +463,18 @@ class ExamService(MongoService):
         self,
         topics: Optional[List[str]] = None,
         years: Optional[List[int]] = None,
+        disciplines: Optional[List[str]] = None,
         question_count: int = 25
     ) -> List[Question]:
         """Selecionar questões baseado nos filtros usando agregação MongoDB"""
         
         try:
+            # Para prova completa do ENEM (90 questões com disciplinas específicas e anos)
+            if disciplines and years and question_count == 90 and len(disciplines) == 2:
+                return self._select_full_exam_questions(disciplines, years[0], question_count)
+            
             # Se não há filtros específicos, selecionar questões distribuidas por disciplina
-            if not topics and not years:
+            if not topics and not years and not disciplines:
                 return self._select_questions_by_discipline(question_count)
             
             # Preparar pipeline de agregação MongoDB
@@ -479,6 +485,9 @@ class ExamService(MongoService):
             
             if years:
                 match_stage["year"] = {"$in": years}
+            
+            if disciplines:
+                match_stage["discipline"] = {"$in": disciplines}
             
             if topics:
                 # Converter strings para ObjectId para comparar com questionTopics
@@ -532,7 +541,64 @@ class ExamService(MongoService):
         except Exception as e:
             logger.error(f"Erro na agregação de questões: {e}")
             # Fallback para método anterior se agregação falhar
-            return self._select_questions_fallback(topics, years, question_count)
+            return self._select_questions_fallback(topics, years, disciplines, question_count)
+    
+    def _select_full_exam_questions(self, disciplines: List[str], year: int, question_count: int = 90) -> List[Question]:
+        """Selecionar questões para prova completa do ENEM (45 questões de cada disciplina)"""
+        try:
+            all_questions = []
+            questions_per_discipline = 45  # ENEM tem 45 questões por disciplina
+            
+            logger.info(f"🎯 Gerando prova completa do ENEM {year} com disciplinas: {disciplines}")
+            
+            for discipline in disciplines:
+                try:
+                    # Pipeline de agregação para seleção aleatória por disciplina e ano
+                    pipeline = [
+                        {
+                            "$match": {
+                                "discipline": discipline,
+                                "year": year
+                            }
+                        },
+                        {"$sample": {"size": questions_per_discipline}}
+                    ]
+                    
+                    questions_collection = self.question_service._get_collection()
+                    questions_cursor = questions_collection.aggregate(pipeline)
+                    discipline_questions = list(questions_cursor)
+                    
+                    logger.info(f"📚 Encontradas {len(discipline_questions)} questões de {discipline} para {year}")
+                    
+                    # Converter dados para objetos Question
+                    for data in discipline_questions:
+                        try:
+                            # Usar método da classe base para converter todos os ObjectIds
+                            converted_data = self._object_id_to_str(data.copy())
+                            question = Question(**converted_data)
+                            all_questions.append(question)
+                        except Exception as e:
+                            logger.warning(f"Erro ao converter questão da disciplina {discipline}: {e}")
+                            continue
+                    
+                    # Verificar se temos questões suficientes
+                    if len(discipline_questions) < questions_per_discipline:
+                        logger.warning(f"⚠️ Apenas {len(discipline_questions)} questões encontradas para {discipline} do ano {year}. Esperadas: {questions_per_discipline}")
+                        
+                except Exception as e:
+                    logger.error(f"Erro ao buscar questões da disciplina {discipline} para o ano {year}: {e}")
+                    continue
+            
+            logger.info(f"✅ Prova completa gerada com {len(all_questions)} questões")
+            
+            # Embaralhar questões para misturar as disciplinas
+            random.shuffle(all_questions)
+            
+            return all_questions
+            
+        except Exception as e:
+            logger.error(f"Erro ao selecionar questões para prova completa: {e}")
+            return []
     
     def _select_questions_by_discipline(self, question_count: int) -> List[Question]:
         """Selecionar questões por disciplina usando agregação (distribuição proporcional por disciplina)"""
@@ -601,6 +667,7 @@ class ExamService(MongoService):
         self,
         topics: Optional[List[str]] = None,
         years: Optional[List[int]] = None,
+        disciplines: Optional[List[str]] = None,
         question_count: int = 25
     ) -> List[Question]:
         """Fallback para seleção de questões usando método anterior"""
@@ -610,6 +677,9 @@ class ExamService(MongoService):
             
             if years:
                 filters["year"] = {"$in": years}
+            
+            if disciplines:
+                filters["discipline"] = {"$in": disciplines}
             
             if topics:
                 # Converter strings para ObjectId para comparar com questionTopics
