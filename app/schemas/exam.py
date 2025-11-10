@@ -49,6 +49,7 @@ class ExamCreate(BaseModel):
     topics: Optional[List[str]] = None
     exam_replic_id: Optional[str] = Field(default=None, alias='examReplicId')
     years: Optional[List[int]] = None
+    disciplines: Optional[List[str]] = None  # Novo: filtrar por disciplinas
     question_count: int = Field(default=25, ge=1, le=100)
     
     @validator('user_id', pre=True, always=True)
