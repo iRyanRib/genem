@@ -1,11 +1,13 @@
 """
-Utility functions for serializing MongoDB data to JSON.
+Utility functions for serializing MongoDB data to JSON and text processing.
 """
 
 from typing import Any, Dict, List, Union
 from bson import ObjectId
 from datetime import datetime
 import json
+import unicodedata
+import re
 
 
 def serialize_objectid(obj: Any) -> Any:
@@ -82,6 +84,45 @@ def to_json(obj: Any, **kwargs) -> str:
         JSON string
     """
     return json.dumps(obj, cls=MongoJSONEncoder, **kwargs)
+
+
+def normalize_text(text: str) -> str:
+    """
+    Normalize text by removing accents and converting to lowercase.
+    
+    This function:
+    1. Removes accents and diacritical marks
+    2. Converts to lowercase
+    3. Keeps only alphanumeric characters and spaces
+    4. Removes multiple spaces
+    
+    Args:
+        text: Input text to normalize
+        
+    Returns:
+        Normalized text without accents and in lowercase
+        
+    Example:
+        >>> normalize_text("Questões de Matemática e Física")
+        "questoes de matematica e fisica"
+    """
+    if not text or not isinstance(text, str):
+        return ""
+    
+    # Remove accents and diacritical marks
+    normalized = unicodedata.normalize('NFD', text)
+    without_accents = ''.join(char for char in normalized if unicodedata.category(char) != 'Mn')
+    
+    # Convert to lowercase
+    lowercased = without_accents.lower()
+    
+    # Keep only alphanumeric characters and spaces
+    cleaned = re.sub(r'[^a-z0-9\s]', ' ', lowercased)
+    
+    # Remove multiple spaces and strip
+    final_text = re.sub(r'\s+', ' ', cleaned).strip()
+    
+    return final_text
 
 
 
