@@ -38,8 +38,9 @@ async def create_exam(
     logger.info(f"📨 Request de criação de exame recebido")
     logger.info(f"📋 ExamData raw: topics={exam_data.topics}, years={exam_data.years}, disciplines={exam_data.disciplines}, count={exam_data.question_count}")
     logger.info(f"🔄 ExamReplicId recebido: {exam_data.exam_replic_id}")
-    logger.info(f"📝 ExamData dict: {exam_data.model_dump()}")
+    logger.info(f"📝 ExamCreateData dict: {exam_data.model_dump()}")
     logger.info(f"🔍 HasAttr exam_replic_id: {hasattr(exam_data, 'exam_replic_id')}")
+    logger.info(f"📄 Description recebida: '{exam_data.description}'")
     
     # Criar novo objeto com user_id do token
     exam_create_data = ExamCreate(
@@ -48,7 +49,8 @@ async def create_exam(
         exam_replic_id=exam_data.exam_replic_id,
         years=exam_data.years,
         disciplines=exam_data.disciplines,
-        question_count=exam_data.question_count
+        question_count=exam_data.question_count,
+        description=exam_data.description
     )
     
     logger.info(f"🎯 Criando exame - User: {exam_create_data.user_id}, Questões: {exam_create_data.question_count}")

@@ -51,6 +51,7 @@ class ExamCreate(BaseModel):
     years: Optional[List[int]] = None
     disciplines: Optional[List[str]] = None  # Novo: filtrar por disciplinas
     question_count: int = Field(default=25, ge=1, le=100)
+    description: Optional[str] = Field(default=None, max_length=1000, description="Descrição em linguagem natural do tipo de simulado desejado")
     
     @validator('user_id', pre=True, always=True)
     def validate_user_id(cls, v):

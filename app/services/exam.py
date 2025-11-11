@@ -13,6 +13,7 @@ from app.schemas.question import Question, DisciplineType
 from app.services.question import QuestionService
 from app.services.base import MongoService
 from app.core.logging_config import get_logger
+from app.core.embeddings import generate_description_embedding
 
 logger = get_logger(__name__)
 
@@ -27,9 +28,10 @@ class ExamService(MongoService):
     
     def create_exam(self, exam_data: ExamCreate) -> Exam:
         """Criar um novo exame"""
-        logger.info(f"🎯 Criando exame para usuário {exam_data.user_id}")
-        logger.info(f"📝 Dados recebidos - Topics: {exam_data.topics}, Years: {exam_data.years}, Disciplines: {exam_data.disciplines}, Count: {exam_data.question_count}")
-        logger.info(f"🔄 ExamReplicId: {exam_data.exam_replic_id}")
+        logger.info(f"Criando exame para usuário {exam_data.user_id}")
+
+        logger.info(f"� Descrição: {'SIM' if exam_data.description else 'NÃO'} - '{exam_data.description if exam_data.description else 'Nenhuma'}'")
+        logger.info(f"�🔄 ExamReplicId: {exam_data.exam_replic_id}")
         
         try:
             # Se exam_replic_id for fornecido, replicar exatamente as questões desse exame
@@ -49,7 +51,7 @@ class ExamService(MongoService):
                     
                     # Extrair question ids do exame existente e buscar cada questão
                     question_ids = [q.get('question_id') for q in existing_exam.get('questions', [])]
-                    logger.info(f"📋 IDs das questões para replicar: {question_ids}")
+                    
                     
                     for i, qid in enumerate(question_ids):
                         # Usar serviço de questões para obter objeto Question
@@ -77,7 +79,8 @@ class ExamService(MongoService):
                     topics=exam_data.topics,
                     years=exam_data.years,
                     disciplines=exam_data.disciplines,
-                    question_count=exam_data.question_count
+                    question_count=exam_data.question_count,
+                    description=exam_data.description
                 )
             
             # Criar questões do exame
@@ -122,7 +125,7 @@ class ExamService(MongoService):
             # Converter para objeto Exam
             exam = Exam(**created_exam_data)
             
-            logger.info(f"✅ Exame criado com sucesso - ID: {exam.id}, Questões: {len(exam_questions)}")
+            logger.info(f"Exame criado com sucesso - ID: {exam.id}, Questões: {len(exam_questions)}")
             return exam
             
         except Exception as e:
@@ -464,17 +467,31 @@ class ExamService(MongoService):
         topics: Optional[List[str]] = None,
         years: Optional[List[int]] = None,
         disciplines: Optional[List[str]] = None,
-        question_count: int = 25
+        question_count: int = 25,
+        description: Optional[str] = None
     ) -> List[Question]:
-        """Selecionar questões baseado nos filtros usando agregação MongoDB"""
+        """Selecionar questões baseado nos filtros usando agregação MongoDB e busca por embeddings"""
         
         try:
             # Para prova completa do ENEM (90 questões com disciplinas específicas e anos)
             if disciplines and years and question_count == 90 and len(disciplines) == 2:
                 return self._select_full_exam_questions(disciplines, years[0], question_count)
             
+            # Se há descrição, usar busca híbrida com embeddings
+            if description:
+
+
+                return self._select_questions_with_embeddings(
+                    description=description,
+                    topics=topics,
+                    years=years,
+                    disciplines=disciplines,
+                    question_count=question_count
+                )
+            
             # Se não há filtros específicos, selecionar questões distribuidas por disciplina
             if not topics and not years and not disciplines:
+
                 return self._select_questions_by_discipline(question_count)
             
             # Preparar pipeline de agregação MongoDB
@@ -517,6 +534,8 @@ class ExamService(MongoService):
             
             # Adicionar sample para seleção aleatória
             pipeline.append({"$sample": {"size": question_count}})
+            
+
             
             # Executar agregação
             questions_collection = self.question_service._get_collection()
@@ -671,6 +690,8 @@ class ExamService(MongoService):
         question_count: int = 25
     ) -> List[Question]:
         """Fallback para seleção de questões usando método anterior"""
+        logger.info("FALLBACK: Usando seleção tradicional devido a erro na busca híbrida")
+        
         try:
             # Preparar filtros para busca
             filters = {}
@@ -830,6 +851,144 @@ class ExamService(MongoService):
                 "total_wrong_answers": 0,
                 "average_score": 0.0
             }
+    
+    def _select_questions_with_embeddings(
+        self,
+        description: str,
+        topics: Optional[List[str]] = None,
+        years: Optional[List[int]] = None,
+        disciplines: Optional[List[str]] = None,
+        question_count: int = 25
+    ) -> List[Question]:
+        """Selecionar questões usando busca híbrida (embeddings + filtros tradicionais)"""
+        try:
+            description_embedding = generate_description_embedding(description)
+            
+            if not description_embedding:
+                logger.warning("Falha ao gerar embedding, usando busca tradicional")
+                return self._select_questions_fallback(topics, years, disciplines, question_count)
+            
+            # Preparar filtros para $match
+            match_filters = {}
+            
+            if years:
+                match_filters["year"] = {"$in": years}
+            
+            if disciplines:
+                match_filters["discipline"] = {"$in": disciplines}
+            
+            if topics:
+                try:
+                    topic_object_ids = []
+                    for topic in topics:
+                        if isinstance(topic, str) and ObjectId.is_valid(topic):
+                            topic_object_ids.append(ObjectId(topic))
+                        elif isinstance(topic, ObjectId):
+                            topic_object_ids.append(topic)
+                    
+                    if topic_object_ids:
+                        match_filters["questionTopics"] = {"$in": topic_object_ids}
+                        
+                except Exception as e:
+                    logger.error(f"Erro ao converter tópicos para ObjectId: {e}")
+                    match_filters["questionTopics"] = {"$in": topics}
+
+            
+            questions_collection = self.question_service._get_collection()
+            
+            if match_filters:
+                # ETAPA 1: Busca tradicional para obter IDs (sem limit)
+                try:
+                    filtered_cursor = questions_collection.find(match_filters, {"_id": 1})
+                    filtered_ids = [doc["_id"] for doc in filtered_cursor]
+                    
+                    if not filtered_ids:
+                        return []
+                        
+                except Exception as e:
+                    logger.error(f"Erro na busca de filtros: {e}")
+                    return self._select_questions_fallback(topics, years, disciplines, question_count)
+                
+                # ETAPA 2: Busca híbrida nos IDs filtrados
+                # Garantir que sempre retornemos questões, mesmo com baixa similaridade
+                pipeline = [
+                    {
+                        "$vectorSearch": {
+                            "index": "genem_summary",
+                            "path": "sumEmbeddings_3s",
+                            "queryVector": description_embedding,
+                            "numCandidates": max(len(filtered_ids), question_count * 10),
+                            "limit": max(len(filtered_ids), question_count * 3)  # Buscar mais candidatos
+                        }
+                    },
+                    {
+                        "$match": {"_id": {"$in": filtered_ids}}
+                    },
+                    {
+                        "$limit": question_count
+                    }
+                ]
+            else:
+                # Busca vetorial direta (sem filtros)
+                pipeline = [
+                    {
+                        "$vectorSearch": {
+                            "index": "genem_summary",
+                            "path": "sumEmbeddings_3s",
+                            "queryVector": description_embedding,
+                            "numCandidates": max(100, question_count * 10),
+                            "limit": question_count
+                        }
+                    }
+                ]
+            
+            try:
+                questions_cursor = questions_collection.aggregate(pipeline)
+                questions_data = list(questions_cursor)
+                
+            except Exception as e:
+                logger.error(f"Erro na busca híbrida: {e}")
+                return self._select_questions_fallback(topics, years, disciplines, question_count)
+            
+            # Converter dados para objetos Question
+            questions = []
+            for data in questions_data:
+                try:
+                    converted_data = self._object_id_to_str(data.copy())
+                    question = Question(**converted_data)
+                    questions.append(question)
+                except Exception as e:
+                    logger.warning(f"Erro ao converter questão: {e}")
+                    continue
+            
+            # Se a busca semântica não trouxe questões suficientes, complementar com filtros tradicionais
+            if len(questions) < question_count and match_filters:
+                remaining_count = question_count - len(questions)
+                existing_ids = [q.id for q in questions]
+                
+                # Buscar questões adicionais apenas pelos filtros tradicionais
+                additional_cursor = questions_collection.find(
+                    {**match_filters, "_id": {"$nin": [ObjectId(qid) if ObjectId.is_valid(qid) else qid for qid in existing_ids]}},
+                    limit=remaining_count
+                )
+                
+                for data in additional_cursor:
+                    try:
+                        converted_data = self._object_id_to_str(data.copy())
+                        question = Question(**converted_data)
+                        questions.append(question)
+                    except Exception as e:
+                        logger.warning(f"Erro ao converter questão adicional: {e}")
+                        continue
+            
+            return questions
+            
+        except Exception as e:
+            logger.error(f"❌ Erro na busca híbrida com embeddings: {e}")
+            logger.info("🔄 Fallback para busca tradicional")
+            return self._select_questions_fallback(topics, years, disciplines, question_count)
+    
+
 
 
 # Singleton instance
