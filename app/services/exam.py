@@ -862,136 +862,74 @@ class ExamService(MongoService):
     ) -> List[Question]:
         """Selecionar questões usando busca híbrida (embeddings + filtros tradicionais)"""
         try:
-
-
             description_embedding = generate_description_embedding(description)
             
             if not description_embedding:
                 logger.warning("Falha ao gerar embedding, usando busca tradicional")
                 return self._select_questions_fallback(topics, years, disciplines, question_count)
             
-
-            
-
-            additional_filters = {}
+            # Preparar filtros para $match
+            match_filters = {}
             
             if years:
-                additional_filters["year"] = {"$in": years}
-
+                match_filters["year"] = {"$in": years}
             
             if disciplines:
-                additional_filters["discipline"] = {"$in": disciplines}
-
+                match_filters["discipline"] = {"$in": disciplines}
             
             if topics:
-                # Converter strings para ObjectId para comparar com questionTopics
-
                 try:
                     topic_object_ids = []
-                    for i, topic in enumerate(topics):
-
+                    for topic in topics:
                         if isinstance(topic, str) and ObjectId.is_valid(topic):
-                            topic_oid = ObjectId(topic)
-                            topic_object_ids.append(topic_oid)
-
+                            topic_object_ids.append(ObjectId(topic))
                         elif isinstance(topic, ObjectId):
                             topic_object_ids.append(topic)
-
                     
                     if topic_object_ids:
-                        additional_filters["questionTopics"] = {"$in": topic_object_ids}
-                        logger.info(f"� Filtro de tópicos aplicado: {len(topic_object_ids)} ObjectIds válidos")
-                        logger.debug(f"    ObjectIds: {topic_object_ids}")
-                    else:
-                        logger.warning("❌ Nenhum tópico válido encontrado na busca híbrida")
+                        match_filters["questionTopics"] = {"$in": topic_object_ids}
                         
                 except Exception as e:
-                    logger.error(f"❌ Erro ao converter tópicos para ObjectId: {e}")
-                    # Fallback: tentar usar diretamente
-                    additional_filters["questionTopics"] = {"$in": topics}
+                    logger.error(f"Erro ao converter tópicos para ObjectId: {e}")
+                    match_filters["questionTopics"] = {"$in": topics}
 
             
-            if additional_filters:
-
-
-
-
-                
-                questions_collection = self.question_service._get_collection()
-                
-
+            questions_collection = self.question_service._get_collection()
+            
+            if match_filters:
+                # ETAPA 1: Busca tradicional para obter IDs (sem limit)
                 try:
-                    filtered_cursor = questions_collection.find(
-                        additional_filters,
-                        {"_id": 1}
-                    )
+                    filtered_cursor = questions_collection.find(match_filters, {"_id": 1})
                     filtered_ids = [doc["_id"] for doc in filtered_cursor]
                     
-
-                    
-                    if len(filtered_ids) == 0:
-                        logger.warning("⚠️ Nenhuma questão encontrada com os filtros aplicados")
-                        logger.info("🔍 Vamos verificar se as questões existem individualmente...")
-                        
-                        # Debug: verificar cada filtro separadamente
-                        for filter_key, filter_value in additional_filters.items():
-                            count = questions_collection.count_documents({filter_key: filter_value})
-                            logger.info(f"  {filter_key}: {count} questões")
-                        
+                    if not filtered_ids:
                         return []
-                    
-                    # Log alguns IDs para debug
-                    logger.debug(f"Primeiros IDs encontrados: {filtered_ids[:3]}")
-                    
-                    # VERIFICAÇÃO IMPORTANTE: Quantas dessas têm embeddings?
-                    questions_with_embeddings = questions_collection.count_documents({
-                        "_id": {"$in": filtered_ids},
-                        "sumEmbeddings_3s": {"$exists": True, "$ne": None}
-                    })
-                    
-                    logger.info(f"📊 Das {len(filtered_ids)} questões filtradas, {questions_with_embeddings} têm embeddings válidos")
-                    
-                    if questions_with_embeddings == 0:
-                        logger.error("❌ PROBLEMA: Nenhuma questão pré-filtrada tem embeddings! Busca semântica será vazia.")
-                        return []
-                    
+                        
                 except Exception as e:
-                    logger.error(f"❌ Erro na busca tradicional (Etapa 1): {e}")
-                    return []
+                    logger.error(f"Erro na busca de filtros: {e}")
+                    return self._select_questions_fallback(topics, years, disciplines, question_count)
                 
-                # ETAPA 2: Busca semântica APENAS nas questões pré-filtradas
-
-                
-                # MongoDB Atlas não permite filtrar por _id no $vectorSearch
-                # Usar apenas $vectorSearch → $match → $limit
-
-                
+                # ETAPA 2: Busca híbrida nos IDs filtrados
+                # Garantir que sempre retornemos questões, mesmo com baixa similaridade
                 pipeline = [
                     {
                         "$vectorSearch": {
                             "index": "genem_summary",
                             "path": "sumEmbeddings_3s",
                             "queryVector": description_embedding,
-                            "numCandidates": len(filtered_ids) * 3,  # Mais candidatos pois vamos filtrar depois
-                            "limit": len(filtered_ids)  # Buscar em todas disponíveis
+                            "numCandidates": max(len(filtered_ids), question_count * 10),
+                            "limit": max(len(filtered_ids), question_count * 3)  # Buscar mais candidatos
                         }
                     },
                     {
-                        "$match": {
-                            "_id": {"$in": filtered_ids}  # Filtrar pelos IDs pré-selecionados
-                        }
+                        "$match": {"_id": {"$in": filtered_ids}}
                     },
                     {
-                        "$limit": question_count  # Limitar ao número desejado
+                        "$limit": question_count
                     }
                 ]
-                
-                logger.info(f"� Pipeline: vectorSearch({len(filtered_ids) * 3} candidates) → match({len(filtered_ids)} ids) → limit({question_count})")
-                
             else:
-                # Busca semântica direta (sem filtros)
-
-                
+                # Busca vetorial direta (sem filtros)
                 pipeline = [
                     {
                         "$vectorSearch": {
@@ -1004,64 +942,45 @@ class ExamService(MongoService):
                     }
                 ]
             
-            # Adicionar score do vetor search para debug e análise
-            pipeline.append({
-                "$addFields": {
-                    "similarity_score": {"$meta": "vectorSearchScore"}
-                }
-            })
-            
-            # Executar busca semântica
-            
             try:
-                questions_collection = self.question_service._get_collection()
-                
-
-                
                 questions_cursor = questions_collection.aggregate(pipeline)
                 questions_data = list(questions_cursor)
                 
-
-                
             except Exception as e:
-                logger.error(f"❌ Erro na execução da agregação: {e}")
-                logger.error(f"Pipeline que falhou: {pipeline}")
-                # Fallback para busca tradicional
+                logger.error(f"Erro na busca híbrida: {e}")
                 return self._select_questions_fallback(topics, years, disciplines, question_count)
-            
-
-            
-            # Log detalhado das primeiras questões encontradas
-            for i, data in enumerate(questions_data[:3]):  # Log apenas primeiras 3
-                score = data.get("similarity_score", "N/A")
-                question_id = data.get("_id", "unknown")
-                year = data.get("year", "N/A")
-                discipline = data.get("discipline", "N/A")
-                topics_count = len(data.get("questionTopics", []))
-                logger.info(f"  📝 Top {i+1}: Score={score}, Ano={year}, Disciplina={discipline}, Tópicos={topics_count}")
-            
-            # Se encontramos menos questões que o solicitado, loggar informação
-            if len(questions_data) < question_count:
-                logger.info(f"⚠️ Busca híbrida retornou apenas {len(questions_data)} de {question_count} questões solicitadas")
-                logger.info("📝 Isso significa que há poucas questões que atendem simultaneamente aos critérios de similaridade e filtros")
             
             # Converter dados para objetos Question
             questions = []
             for data in questions_data:
                 try:
-                    # Remover campo auxiliar de score antes da conversão
-                    if "similarity_score" in data:
-                        del data["similarity_score"]
-                    
-                    # Usar método da classe base para converter todos os ObjectIds
                     converted_data = self._object_id_to_str(data.copy())
                     question = Question(**converted_data)
                     questions.append(question)
                 except Exception as e:
-                    logger.warning(f"Erro ao converter questão {data.get('_id', 'unknown')}: {e}")
+                    logger.warning(f"Erro ao converter questão: {e}")
                     continue
             
-            logger.info(f"Total de questões selecionadas via busca híbrida: {len(questions)}")
+            # Se a busca semântica não trouxe questões suficientes, complementar com filtros tradicionais
+            if len(questions) < question_count and match_filters:
+                remaining_count = question_count - len(questions)
+                existing_ids = [q.id for q in questions]
+                
+                # Buscar questões adicionais apenas pelos filtros tradicionais
+                additional_cursor = questions_collection.find(
+                    {**match_filters, "_id": {"$nin": [ObjectId(qid) if ObjectId.is_valid(qid) else qid for qid in existing_ids]}},
+                    limit=remaining_count
+                )
+                
+                for data in additional_cursor:
+                    try:
+                        converted_data = self._object_id_to_str(data.copy())
+                        question = Question(**converted_data)
+                        questions.append(question)
+                    except Exception as e:
+                        logger.warning(f"Erro ao converter questão adicional: {e}")
+                        continue
+            
             return questions
             
         except Exception as e:
